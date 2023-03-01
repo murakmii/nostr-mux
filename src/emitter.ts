@@ -4,7 +4,7 @@ export type EmitterCallback<T> = (arg: T) => void;
  * Minimal implementation like EventTarget, EventEmitter
  */
 export class Emitter<T> {
-  listeners: EmitterCallback<T>[];
+  private listeners: EmitterCallback<T>[];
 
   constructor() {
     this.listeners = [];

@@ -223,10 +223,7 @@ export class Relay {
     this.ws.addEventListener('error', e => {
       this.log.error(`[${this.url}] WebScoket error`);
       clearTimeout(connTimeout);
-
-      if (e.target instanceof WebSocket) {
-        e.target.close();
-      }
+      (e.target as WebSocket).close(); 
     });
   }
 
@@ -283,6 +280,10 @@ export class Relay {
   }
 
   private startWatchDog() {
+    if (this.watchDogInterval <= 0) {
+      return;
+    }
+
     if (this.watchDog) {
       clearInterval(this.watchDog);
     }
@@ -318,17 +319,12 @@ export class Relay {
     }
 
     // We guarantee emitting EOSE.
-    //
-    // If listeners of emitter recursively calls `reset`, it occurs infinite loop.
-    // To prevent it, we firstly clear state(`subs`) and lastly emits.
-    const subIDs = Object.keys(this.subs);
+    for (const subID of Object.keys(this.subs)) {
+      this.emitEose(subID);
+    }
 
     this.subs = {};
     this.keepAlivedAt = null;
-
-    for (const subID of subIDs) {
-      this.emitEose(subID);
-    }
   }
 
   private keepAlived(): void {
@@ -342,7 +338,8 @@ export class Relay {
     }
 
     clearTimeout(eoseTimer);
-    this.onEose.emit({ relay: this, received: { type: 'EOSE', subscriptionID: subID } });
+
     this.subs[subID] = null;
+    this.onEose.emit({ relay: this, received: { type: 'EOSE', subscriptionID: subID } });
   }
 }

@@ -104,7 +104,7 @@ export const generateID = async (event: IncompleteEvent): Promise<string> => {
     event.content,
   ]));
 
-  return utils.bytesToHex(await utils.sha256(encoded));
+  return utils.bytesToHex(await utils.sha256(new Uint8Array(encoded)));
 };
 
 /**
