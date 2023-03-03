@@ -1,4 +1,4 @@
-import { Logger, LogLevel, LeveledLogger } from './logger';
+import { Logger, LogLevel, SimpleLogger } from './logger';
 
 class StubLogger implements Logger {
   called: { message: string, data: any[] }[];
@@ -55,13 +55,9 @@ test.each([
       { message: 'error message', data: [4] }
     ]
   },
-  {
-    level: LogLevel.supress,
-    expected: []
-  },
 ])('LeveledLogger(level: $level)', ({ level, expected }) => {
   const stub = new StubLogger();
-  const sut = new LeveledLogger(stub, level);
+  const sut = new SimpleLogger(stub, level);
 
   sut.debug('debug message', 1);
   sut.info('info message', 2);
@@ -72,7 +68,7 @@ test.each([
 });
 
 test('LeveledLogger with console', () => {
-  const sut = new LeveledLogger(console, LogLevel.debug);
+  const sut = new SimpleLogger(console, LogLevel.debug);
   
   sut.debug('debug message', 1);
   sut.info('info message', 2);

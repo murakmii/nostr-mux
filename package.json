@@ -2,10 +2,11 @@
   "name": "nostr-mux",
   "version": "0.1.0",
   "description": "Multiplexed connection for Nostr relays",
-  "main": "dist/index.js",
+  "type": "module",
+  "main": "./dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc",
+    "build": "rm -r dist && tsc",
     "test": "jest"
   },
   "author": "murakmii",
@@ -15,6 +16,7 @@
     "jest": "^29.4.3",
     "jest-environment-jsdom": "^29.4.3",
     "ts-jest": "^29.0.5",
+    "ts-jest-resolver": "^2.0.0",
     "typescript": "^4.9.5"
   },
   "dependencies": {

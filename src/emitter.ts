@@ -1,9 +1,12 @@
 export type EmitterCallback<T> = (arg: T) => void; 
 
-/**
- * Minimal implementation like EventTarget, EventEmitter
- */
-export class Emitter<T> {
+export interface Emitter<T> {
+  listen(listener: EmitterCallback<T>): void;
+  stop(listener: EmitterCallback<T>): void;
+  emit(arg: T): void
+}
+
+export class SimpleEmitter<T> implements Emitter<T> {
   private listeners: EmitterCallback<T>[];
 
   constructor() {

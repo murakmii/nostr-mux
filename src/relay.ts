@@ -1,6 +1,6 @@
-import { Emitter } from "./emitter";
-import { verifyEvent, Event } from "./event";
-import { LeveledLogger, Logger, LogLevel } from "./logger";
+import { Emitter, SimpleEmitter } from "./emitter.js";
+import { verifyEvent, Event } from "./event.js";
+import { SimpleLogger, Logger, LogLevel } from "./logger.js";
 
 // TODO: support AUTH
 export type RelayMessage = EventMessage | NoticeMessage | EoseMessage | OkMessage;
@@ -11,7 +11,7 @@ export type EoseMessage = { type: 'EOSE', subscriptionID: string };
 export type OkMessage = { type: 'OK', eventID: string, accepted: boolean, message: string };
 
 export interface RelayOptions {
-  logger?: Logger | number,
+  logger?: Logger | LogLevel,
   connectTimeout?: number;
   watchDogInterval?: number;
   keepAliveTimeout?: number;
@@ -125,9 +125,9 @@ export class Relay {
     this.url = url;
 
     if (typeof options.logger === 'undefined') {
-      this.log = new LeveledLogger(console, LogLevel.supress);
+      this.log = new SimpleLogger(console, LogLevel.supress);
     } else if (typeof options.logger === 'number') {
-      this.log = new LeveledLogger(console, options.logger);
+      this.log = new SimpleLogger(console, options.logger);
     } else {
       this.log = options.logger;
     }
@@ -141,9 +141,9 @@ export class Relay {
     this.keepAlivedAt = null;
     this.subs = {};
 
-    this.onHealthy = new Emitter<RelayEvent>();
-    this.onEvent = new Emitter<RelayMessageEvent<EventMessage>>();
-    this.onEose = new Emitter<RelayMessageEvent<EoseMessage>>();
+    this.onHealthy = new SimpleEmitter<RelayEvent>();
+    this.onEvent = new SimpleEmitter<RelayMessageEvent<EventMessage>>();
+    this.onEose = new SimpleEmitter<RelayMessageEvent<EoseMessage>>();
 
     this.handleWSOpen = () => {
       this.log.debug(`[${this.url}] open`);

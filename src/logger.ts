@@ -13,14 +13,16 @@ export const LogLevel = {
   info: 20,
   warn: 30,
   error: 40,
-  supress: 100
+  supress: 50,
 } as const;
 
-export class LeveledLogger implements Logger {
-  private logger: Logger;
-  private level: number;
+export type LogLevel = typeof LogLevel[keyof typeof LogLevel];
 
-  constructor(logger: Logger, level: number) {
+export class SimpleLogger implements Logger {
+  private logger: Logger;
+  private level: LogLevel;
+
+  constructor(logger: Logger, level: LogLevel) {
     this.logger = logger;
     this.level = level;
   }

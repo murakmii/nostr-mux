@@ -1,7 +1,7 @@
-import { Emitter } from './emitter';
+import { SimpleEmitter } from './emitter';
 
-test('Emitter', () => {
-  const sut = new Emitter<string>();
+test('SimpleEmitter', () => {
+  const sut = new SimpleEmitter<string>();
 
   sut.emit('foo'); // no error
 

@@ -5,7 +5,7 @@ import {
   EoseMessage,
   RelayMessageEvent,
   Relay
-} from "./relay";
+} from "./relay.js";
 
 export interface SubscriptionOptions {
   filters: Filter[];
