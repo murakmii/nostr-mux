@@ -230,6 +230,29 @@ describe('Relay', () => {
     sut.terminate();
   });
 
+  test('updatePermission', () => {
+    const sut = new Relay('wss://localhost', { watchDogInterval: 0 });
+
+    let eose: string|null = null;
+    sut.onEose.listen(e => eose = e.received.subscriptionID);
+
+    sut.connect();
+
+    // @ts-ignore
+    const ws = sut.ws as StubWebSocket
+    ws.readyState = 1;
+    ws.dispatch('open', null);
+    
+    sut.request('my-sub', [{ kinds: [1] }], { eoseTimeout: 60000 });
+    
+    sut.updatePermission({ read: false });
+
+    expect(eose).toBe('my-sub');
+    expect(sut.isWritable).toBe(true);
+    
+    sut.terminate();
+  });
+
   test('publish', () => {
     const logger = new StubLogger();
     const sut = new Relay('wss://localhost', { logger, watchDogInterval: 0 });
@@ -401,8 +424,7 @@ describe('Relay', () => {
       '["CLOSE","my-sub"]',
     ]);
 
-    // EOSE does not emit(close function cancels EOSE timer)
-    expect(eose).toBe(null);
+    expect(eose).toBe('my-sub');
     
     sut.terminate();
   });

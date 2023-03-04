@@ -280,7 +280,7 @@ export class Mux {
           throw new Error(`failed to publish event: ${result}`);
         }
 
-        const targets = this.allRelays;
+        const targets = this.allRelays.filter(r => r.isWritable);
 
         this.cmds[event.id] = new CommandResult(targets, options.onResult);
         for (const relay of targets) {
@@ -306,7 +306,7 @@ export class Mux {
       throw new Error(`Subscription ID("${subID}") has been used`);
     }
 
-    const initialRelays = this.healthyRelays;
+    const initialRelays = this.healthyRelays.filter(r => r.isReadable);
     this.subs[subID] = new Subscription(subID, initialRelays, options);
 
     for (const relay of initialRelays) {

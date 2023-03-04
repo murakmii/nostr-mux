@@ -10,7 +10,12 @@ export type NoticeMessage = { type: 'NOTICE', message: string };
 export type EoseMessage = { type: 'EOSE', subscriptionID: string };
 export type OkMessage = { type: 'OK', eventID: string, accepted: boolean, message: string };
 
-export interface RelayOptions {
+export interface RelayPermission {
+  read?: boolean,
+  write?: boolean,
+}
+
+export interface RelayOptions extends RelayPermission {
   logger?: Logger | LogLevel,
   connectTimeout?: number;
   watchDogInterval?: number;
@@ -106,6 +111,9 @@ const buildErrorCommandResult = (eventID: string, message: string): OkMessage =>
 export class Relay {
   readonly url: string;
 
+  private read: boolean;
+  private write: boolean;
+
   private log: Logger;
 
   private connectTimeout: number;
@@ -129,6 +137,9 @@ export class Relay {
 
   constructor(url: string, options: RelayOptions = {}) {
     this.url = url;
+
+    this.read = (typeof options.read === 'boolean') ? options.read : true;
+    this.write = (typeof options.write === 'boolean') ? options.write : true;
 
     if (typeof options.logger === 'undefined') {
       this.log = new SimpleLogger(console, LogLevel.supress);
@@ -191,6 +202,14 @@ export class Relay {
     }
   }
 
+  get isReadable(): boolean {
+    return this.read;
+  }
+
+  get isWritable(): boolean {
+    return this.write;
+  }
+
   get isHealthy(): boolean {
     return !!(this.ws && this.ws.readyState === 1);
   }
@@ -238,11 +257,32 @@ export class Relay {
     });
   }
 
+  updatePermission(perm: RelayPermission): void {
+    if (typeof perm.read === 'boolean' && this.read !== perm.read) {
+      this.read = perm.read;
+
+      // If relay becomes unreadable, close all subscriptions.
+      if (!this.read) {
+        for (const subID in this.subs) {
+          this.close(subID);
+        }
+      }
+    }
+
+    if (typeof perm.write === 'boolean' && this.write !== perm.write) {
+      this.write = perm.write;
+    }
+  }
+
   /**
    * `publish` method publishes event to relay.
    * This method trusts event(e.g. signature) and does NOT verify it.
    */
-  publish(event: Event, timeout: number = 5000) {
+  publish(event: Event, timeout: number = 5000): void {
+    if (!this.isWritable) {
+      throw new Error(`relay(${this.url}) is NOT writable`);
+    }
+
     if (this.cmds[event.id]) {
       return;
     }
@@ -266,6 +306,10 @@ export class Relay {
    * @param options 
    */
   request(subID: string, filters: Filter[], options: RequestOptions = {}): void {
+    if (!this.isReadable) {
+      throw new Error(`relay(${this.url}) is NOT readable`);
+    }
+
     if (subID in this.subs) {
       return;
     }
@@ -290,10 +334,7 @@ export class Relay {
       return;
     }
 
-    const timer = this.subs[subID];
-    if (timer) {
-      clearTimeout(timer);
-    }
+    this.emitEose(subID);
     delete this.subs[subID];
 
     this.log.debug(`[${this.url}] close subscription: ${subID}`);

@@ -104,15 +104,22 @@ describe('Mux', () => {
   test('publish', async () => {
     const relay1 = new Relay('wss://host-1', { watchDogInterval: 0 });
     const relay2 = new Relay('wss://host-2', { watchDogInterval: 0 });
+    const relay3 = new Relay('wss://host-3', { write: false, watchDogInterval: 0 });
     const sut = new Mux();
 
     sut.addRelay(relay1);
     sut.addRelay(relay2);
+    sut.addRelay(relay3);
 
     // @ts-ignore
     relay1.ws.readyState = 1;
     // @ts-ignore
     relay1.ws.dispatch('open', null);
+
+    // @ts-ignore
+    relay3.ws.readyState = 1;
+    // @ts-ignore
+    relay3.ws.dispatch('open', null);
 
     let results: RelayMessageEvent<OkMessage>[] | null = null;
     sut.publish(
@@ -152,10 +159,12 @@ describe('Mux', () => {
   test('subscribe', async () => {
     const relay1 = new Relay('wss://host1', { watchDogInterval: 0 });
     const relay2 = new Relay('wss://host2', { watchDogInterval: 0 });
+    const relay3 = new Relay('wss://host3', { read: false, watchDogInterval: 0 });
     const sut = new Mux();
 
     sut.addRelay(relay1);
     sut.addRelay(relay2);
+    sut.addRelay(relay3);
 
     // @ts-ignore
     relay1.ws.readyState = 1;
@@ -166,6 +175,11 @@ describe('Mux', () => {
     relay2.ws.readyState = 1;
     // @ts-ignore
     relay2.ws.dispatch('open', null);
+
+    // @ts-ignore
+    relay3.ws.readyState = 1;
+    // @ts-ignore
+    relay3.ws.dispatch('open', null);
 
     let eoseSubIDs: string[] = [];
     let contents: string[] = [];
@@ -210,6 +224,8 @@ describe('Mux', () => {
     expect(relay1.ws.sent).toEqual(['["REQ","__sub:1",{"kinds":[1]}]', '["CLOSE","__sub:1"]']);
     // @ts-ignore
     expect(relay2.ws.sent).toEqual(['["REQ","__sub:1",{"kinds":[1]}]', '["CLOSE","__sub:1"]']);
+    // @ts-ignore
+    expect(relay3.ws.sent).toEqual([]);
   });
 
   test('subscribe and recovery', async () => {
