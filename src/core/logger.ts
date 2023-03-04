@@ -18,6 +18,16 @@ export const LogLevel = {
 
 export type LogLevel = typeof LogLevel[keyof typeof LogLevel];
 
+export const buildSimpleLogger = (logger: Logger | LogLevel | undefined): Logger => {
+  if (typeof logger === 'undefined') {
+    return new SimpleLogger(console, LogLevel.supress);
+  } else if (typeof logger === 'number') {
+    return new SimpleLogger(console, logger);
+  } else {
+    return logger;
+  }
+}
+
 export class SimpleLogger implements Logger {
   private logger: Logger;
   private level: LogLevel;

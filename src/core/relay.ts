@@ -1,6 +1,6 @@
 import { Emitter, SimpleEmitter } from "./emitter.js";
 import { verifyEvent, Event } from "./event.js";
-import { SimpleLogger, Logger, LogLevel } from "./logger.js";
+import { SimpleLogger, Logger, LogLevel, buildSimpleLogger } from "./logger.js";
 
 // TODO: support AUTH
 export type RelayMessage = EventMessage | NoticeMessage | EoseMessage | OkMessage;
@@ -140,14 +140,8 @@ export class Relay {
 
     this.read = (typeof options.read === 'boolean') ? options.read : true;
     this.write = (typeof options.write === 'boolean') ? options.write : true;
-
-    if (typeof options.logger === 'undefined') {
-      this.log = new SimpleLogger(console, LogLevel.supress);
-    } else if (typeof options.logger === 'number') {
-      this.log = new SimpleLogger(console, options.logger);
-    } else {
-      this.log = options.logger;
-    }
+    
+    this.log = buildSimpleLogger(options.logger);
 
     this.connectTimeout = options.connectTimeout || 2000;
     this.watchDogInterval = options.watchDogInterval || 60000;

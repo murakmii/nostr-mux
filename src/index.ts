@@ -38,3 +38,8 @@ export {
   Plugin,
   Mux,
 } from './core/mux.js';
+
+export {
+  RelayManagerOptions,
+  RelayManager
+} from './plugin/relay_manager.js';

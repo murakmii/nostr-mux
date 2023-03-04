@@ -7,7 +7,7 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "rm -r dist && tsc",
-    "test": "jest"
+    "test": "jest --coverage"
   },
   "author": "murakmii",
   "license": "MIT",

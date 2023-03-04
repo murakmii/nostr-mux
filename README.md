@@ -3,7 +3,7 @@
 Multiplexed connections management for Nostr client.
 
 ```js
-import { Mux, Relay } from 'nostr-mux';
+import { Mux, Relay, RelayManager } from 'nostr-mux';
 
 // Instantiate connection for relay.
 const relay1 = new Relay('wss://relay.snort.social');
@@ -14,6 +14,13 @@ const mux = new Mux();
 // Multiplexe them.
 mux.addRelay(relay1);
 mux.addRelay(relay2);
+
+// If necessary, you can use relay management plugin integrates relay list metadata(NIP-65)
+const relayManager = new RelayManager({
+  pubkey: '<hex pubkey>',
+});
+
+mux.installPlugin(relayManager);
 
 // Subscribe
 mux.waitRelayBecomesHealthy(1, 3000)

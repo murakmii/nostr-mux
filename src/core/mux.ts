@@ -25,14 +25,14 @@ export interface SubscriptionOptions {
   onRecovered?: (relay: Relay) => Filter[];
 }
 
-export interface Plugin {
-  id(): string;
+export abstract class Plugin {
+  abstract id(): string;
 
-  install(mux: Mux): void;
-  uninstall(mux: Mux): void;
+  install(mux: Mux): void {}
+  uninstall(): void {}
 
-  capturePublishedEvent(event: Event): void;
-  captureReceivedEvent(e: RelayMessageEvent<EventMessage>): void;
+  capturePublishedEvent(event: Event): void {}
+  captureReceivedEvent(e: RelayMessageEvent<EventMessage>): void {}
 }
 
 class Subscription {
@@ -218,7 +218,7 @@ export class Mux {
       return;
     }
 
-    this.plugins[pluginID].uninstall(this);
+    this.plugins[pluginID].uninstall();
     delete this.plugins[pluginID];
   }
 
@@ -331,10 +331,6 @@ export class Mux {
    * @returns Started subscription id
    */
   subscribe(options: SubscriptionOptions): string {
-    if (options.id?.startsWith('__')) {
-      throw new Error('Subscription ID has "__"(double underscore) prefix is reserved by nostr-mux');
-    }
-
     const subID = options.id || `__sub:${this.subIDSeq++}`;
     if (this.subs[subID]) {
       throw new Error(`Subscription ID("${subID}") has been used`);
