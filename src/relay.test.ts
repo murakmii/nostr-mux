@@ -1,5 +1,5 @@
 import { Logger } from './logger';
-import { validateRelayMessage, Relay } from './relay';
+import { validateRelayMessage, Relay, OkMessage } from './relay';
 
 interface StubWebSocket {
   readyState: number;
@@ -230,6 +230,81 @@ describe('Relay', () => {
     sut.terminate();
   });
 
+  test('publish', () => {
+    const logger = new StubLogger();
+    const sut = new Relay('wss://localhost', { logger, watchDogInterval: 0 });
+
+    sut.connect();
+
+    // @ts-ignore
+    const ws = sut.ws as StubWebSocket
+    ws.readyState = 1;
+    ws.dispatch('open', null);
+    
+    const event = {
+      id: '75a1b3c28b7082e0c74c43f2f1d917217c9fd8d73017688c8ac4c70bb2966b56',
+      pubkey: 'fc137c5bb32f96849dff141bdf94c9e9426eeae0ecc1d2e67aa69bf8d04b2f1e',
+      created_at: 1677297041,
+      kind: 1,
+      tags: [],
+      content: 'hello, jest',
+      sig: '3451d8cfb61324ca23ee2b093058e79ab8b271acce7a2456a560ee36a517e13f90ae92f44d69f14ce75b8414a9ceeb7e781054ca9414a50052e07bf19ea24cdf',
+    };
+
+    sut.publish(event);
+
+    // @ts-ignore
+    expect((sut.ws as StubWebSocket).sent).toEqual([
+      JSON.stringify(['EVENT', event])
+    ]);
+
+    // @ts-ignore
+    expect(sut.cmds['75a1b3c28b7082e0c74c43f2f1d917217c9fd8d73017688c8ac4c70bb2966b56']).not.toBe(undefined);
+
+    sut.terminate();
+  });
+
+  test('publish and timeout', async () => {
+    const logger = new StubLogger();
+    const sut = new Relay('wss://localhost', { logger, watchDogInterval: 0 });
+
+    let result: OkMessage | null = null;
+    sut.onResult.listen(e => result = e.received);
+
+    sut.connect();
+
+    // @ts-ignore
+    const ws = sut.ws as StubWebSocket
+    ws.readyState = 1;
+    ws.dispatch('open', null);
+    
+    const event = {
+      id: '75a1b3c28b7082e0c74c43f2f1d917217c9fd8d73017688c8ac4c70bb2966b56',
+      pubkey: 'fc137c5bb32f96849dff141bdf94c9e9426eeae0ecc1d2e67aa69bf8d04b2f1e',
+      created_at: 1677297041,
+      kind: 1,
+      tags: [],
+      content: 'hello, jest',
+      sig: '3451d8cfb61324ca23ee2b093058e79ab8b271acce7a2456a560ee36a517e13f90ae92f44d69f14ce75b8414a9ceeb7e781054ca9414a50052e07bf19ea24cdf',
+    };
+
+    sut.publish(event, 100);
+
+    await new Promise(r => setTimeout(r, 200));
+
+    expect(result).toEqual({ 
+      type: 'OK',
+      eventID: '75a1b3c28b7082e0c74c43f2f1d917217c9fd8d73017688c8ac4c70bb2966b56',
+      accepted: false,
+      message: 'error: client timeout',
+    });
+
+    // @ts-ignore
+    expect(sut.cmds).toEqual({});
+
+    sut.terminate();
+  });
+
   test('request', () => {
     const logger = new StubLogger();
     const sut = new Relay('wss://localhost', { logger, watchDogInterval: 0 });
@@ -247,6 +322,9 @@ describe('Relay', () => {
     expect((sut.ws as StubWebSocket).sent).toEqual([
       '["REQ","my-sub",{"kinds":[1]}]'
     ]);
+
+    // @ts-ignore
+    expect(sut.subs['my-sub']).not.toBe(undefined);
 
     sut.terminate();
   });
@@ -329,7 +407,7 @@ describe('Relay', () => {
     sut.terminate();
   });
 
-  test('request', async () => {
+  test('WatchDog', async () => {
     const logger = new StubLogger();
     const sut = new Relay('wss://localhost', { logger, watchDogInterval: 1000 });
 
@@ -354,5 +432,55 @@ describe('Relay', () => {
     ]);
 
     sut.terminate();
+  });
+
+  test('terminate', async () => {
+    const logger = new StubLogger();
+    const sut = new Relay('wss://localhost', { logger, watchDogInterval: 60000 });
+
+    let result: OkMessage | null = null;
+    sut.onResult.listen(e => result = e.received);
+
+    let eose: string|null = null;
+    sut.onEose.listen(e => eose = e.received.subscriptionID);
+
+    sut.connect();
+
+    // @ts-ignore
+    const ws = sut.ws as StubWebSocket
+    ws.readyState = 1;
+    ws.dispatch('open', null);
+
+    sut.publish({
+      id: '75a1b3c28b7082e0c74c43f2f1d917217c9fd8d73017688c8ac4c70bb2966b56',
+      pubkey: 'fc137c5bb32f96849dff141bdf94c9e9426eeae0ecc1d2e67aa69bf8d04b2f1e',
+      created_at: 1677297041,
+      kind: 1,
+      tags: [],
+      content: 'hello, jest',
+      sig: '3451d8cfb61324ca23ee2b093058e79ab8b271acce7a2456a560ee36a517e13f90ae92f44d69f14ce75b8414a9ceeb7e781054ca9414a50052e07bf19ea24cdf',
+    }, 60000);
+
+    sut.request('my-sub', [{ kinds: [1] }], { eoseTimeout: 60000 });
+
+    sut.terminate();
+
+    expect(result).toEqual({ 
+      type: 'OK',
+      eventID: '75a1b3c28b7082e0c74c43f2f1d917217c9fd8d73017688c8ac4c70bb2966b56',
+      accepted: false,
+      message: 'error: client reset',
+    });
+    
+    expect(eose).toBe('my-sub');
+
+    // @ts-ignore
+    expect(sut.ws).toBe(null);
+
+    // @ts-ignore
+    expect(sut.subs).toEqual({});
+
+      // @ts-ignore
+    expect(sut.cmds).toEqual({});
   });
 });

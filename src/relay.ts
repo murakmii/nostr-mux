@@ -36,7 +36,7 @@ export type Filter = {
 }
 
 export interface RequestOptions {
-  eoseTimeout?: number
+  eoseTimeout?: number;
 }
 
 /**
@@ -96,6 +96,10 @@ export const validateRelayMessage = async (wsMessage: MessageEvent): Promise<Rel
   }
 };
 
+const buildErrorCommandResult = (eventID: string, message: string): OkMessage => (
+  { type: 'OK', eventID, accepted: false, message: `error: client ${message}` }
+);
+
 /**
  * `Relay` implements low-level operation to communicate relay.
  */
@@ -111,11 +115,13 @@ export class Relay {
   private ws: WebSocket | null;
   private watchDog: NodeJS.Timeout | null;
   private keepAlivedAt: number | null;
-  private subs: { [key: string]: NodeJS.Timeout | null };
+  private subs: { [K: string]: NodeJS.Timeout | null };
+  private cmds: { [K: string]: NodeJS.Timeout };
 
   readonly onHealthy: Emitter<RelayEvent>;
   readonly onEvent: Emitter<RelayMessageEvent<EventMessage>>;
   readonly onEose: Emitter<RelayMessageEvent<EoseMessage>>;
+  readonly onResult: Emitter<RelayMessageEvent<OkMessage>>;
 
   private handleWSOpen: () => void;
   private handleWSMessage: (e: MessageEvent) => Promise<void>;
@@ -140,10 +146,12 @@ export class Relay {
     this.watchDog = null;
     this.keepAlivedAt = null;
     this.subs = {};
+    this.cmds = {};
 
-    this.onHealthy = new SimpleEmitter<RelayEvent>();
-    this.onEvent = new SimpleEmitter<RelayMessageEvent<EventMessage>>();
-    this.onEose = new SimpleEmitter<RelayMessageEvent<EoseMessage>>();
+    this.onHealthy = new SimpleEmitter();
+    this.onEvent = new SimpleEmitter();
+    this.onEose = new SimpleEmitter();
+    this.onResult = new SimpleEmitter();
 
     this.handleWSOpen = () => {
       this.log.debug(`[${this.url}] open`);
@@ -173,6 +181,9 @@ export class Relay {
           break;
         
         case 'OK':
+          this.emitResult(msg);
+          break;
+
         case 'NOTICE':
           this.log.info(`[${this.url}] received ${msg.type}, but it is NOT supported yet`, msg);
           break;
@@ -225,6 +236,25 @@ export class Relay {
       clearTimeout(connTimeout);
       (e.target as WebSocket).close(); 
     });
+  }
+
+  /**
+   * `publish` method publishes event to relay.
+   * This method trusts event(e.g. signature) and does NOT verify it.
+   */
+  publish(event: Event, timeout: number = 5000) {
+    if (this.cmds[event.id]) {
+      return;
+    }
+
+    if (!this.isHealthy) {
+      throw new Error(`relay(${this.url}) is NOT healthy`);
+    }
+
+    this.log.debug(`[${this.url}] send event`, event);
+
+    this.ws?.send(JSON.stringify(['EVENT', event]));
+    this.cmds[event.id] = setTimeout(() => this.emitResult(buildErrorCommandResult(event.id, 'timeout')), timeout);
   }
 
   /**
@@ -318,12 +348,16 @@ export class Relay {
       this.ws = null;
     }
 
-    // We guarantee emitting EOSE.
-    for (const subID of Object.keys(this.subs)) {
+    // We guarantee emitting EOSE, Command Result.
+    for (const subID in this.subs) {
       this.emitEose(subID);
+    }
+    for (const eventID in this.cmds) {
+      this.emitResult(buildErrorCommandResult(eventID, 'reset'));
     }
 
     this.subs = {};
+    this.cmds = {};
     this.keepAlivedAt = null;
   }
 
@@ -341,5 +375,17 @@ export class Relay {
 
     this.subs[subID] = null;
     this.onEose.emit({ relay: this, received: { type: 'EOSE', subscriptionID: subID } });
+  }
+
+  private emitResult(msg: OkMessage): void {
+    const cmdTimer = this.cmds[msg.eventID];
+    if (!cmdTimer) {
+      return;
+    }
+
+    clearTimeout(cmdTimer);
+
+    delete this.cmds[msg.eventID];
+    this.onResult.emit({ relay: this, received: msg });
   }
 }
