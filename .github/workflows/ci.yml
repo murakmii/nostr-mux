@@ -8,5 +8,7 @@ jobs:
       - uses: actions/setup-node@v3
         with:
           node-version: '15'
-      - npm install
-      - npm run test
+      - name: setup
+        run: npm install
+      - name: run test
+      - run: npm run test
