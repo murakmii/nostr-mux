@@ -3,9 +3,17 @@ import {
   RelayEvent,
   EventMessage,
   EoseMessage,
+  OkMessage,
   RelayMessageEvent,
   Relay
 } from "./relay.js";
+
+import { Event, verifyEvent } from "./event.js";
+
+export interface PublishOptions {
+  timeout?: number;
+  onResult?: (results: RelayMessageEvent<OkMessage>[]) => void;
+}
 
 export interface SubscriptionOptions {
   filters: Filter[];
@@ -87,6 +95,35 @@ class Subscription {
   }
 }
 
+export class CommandResult {
+  private waitList: Set<string>;
+  private results: RelayMessageEvent<OkMessage>[];
+  private onResult?: (results: RelayMessageEvent<OkMessage>[]) => void;
+
+  constructor(waitList: Relay[], onResult?: ((results: RelayMessageEvent<OkMessage>[]) => void) | undefined) {
+    this.waitList = new Set(waitList.map(r => r.url));
+    this.results = [];
+    this.onResult = onResult;
+  }
+
+  get hasCompleted(): boolean {
+    return this.waitList.size === 0;
+  }
+
+  consumeResult(e: RelayMessageEvent<OkMessage>) {
+    if (!this.waitList.has(e.relay.url)) {
+      return;
+    }
+
+    this.waitList.delete(e.relay.url);
+    this.results.push(e);
+    
+    if (this.hasCompleted && this.onResult) {
+      this.onResult(this.results);
+    }
+  }
+}
+
 /**
  * `Mux` class multiplexes multiple `Relay`s
  */
@@ -94,16 +131,19 @@ export class Mux {
   private relays: { [K: string]: Relay };
   private subs: { [K: string]: Subscription }
   private subIDSeq: number;
+  private cmds: { [K: string]: CommandResult };
   private healthyWatchers: Set<(() => void)>;
 
   private handleRelayHealthy: (e: RelayEvent) => void;
   private handleRelayEvent: (e: RelayMessageEvent<EventMessage>) => void;
   private handleRelayEose: (e: RelayMessageEvent<EoseMessage>) => void;
+  private handleRelayResult: (e: RelayMessageEvent<OkMessage>) => void;
 
   constructor() {
     this.relays = {};
     this.subs = {};
     this.subIDSeq = 1;
+    this.cmds = {};
     this.healthyWatchers = new Set<(() => void)>();
 
     this.handleRelayEvent = (e: RelayMessageEvent<EventMessage>): void => {
@@ -112,6 +152,18 @@ export class Mux {
 
     this.handleRelayEose = (e: RelayMessageEvent<EoseMessage>): void => {
       this.subs[e.received.subscriptionID]?.consumeEose(e.relay.url);
+    };
+
+    this.handleRelayResult = (e: RelayMessageEvent<OkMessage>): void => {
+      const cmd = this.cmds[e.received.eventID];
+      if (!cmd) {
+        return;
+      }
+
+      cmd.consumeResult(e);
+      if (cmd.hasCompleted) {
+        delete this.cmds[e.received.eventID];
+      }
     };
 
     this.handleRelayHealthy = (e: RelayEvent): void => {
@@ -154,6 +206,7 @@ export class Mux {
     relay.onHealthy.listen(this.handleRelayHealthy);
     relay.onEvent.listen(this.handleRelayEvent);
     relay.onEose.listen(this.handleRelayEose);
+    relay.onResult.listen(this.handleRelayResult);
     relay.connect();
 
     this.relays[relay.url] = relay;
@@ -176,6 +229,7 @@ export class Mux {
     relay.onHealthy.stop(this.handleRelayHealthy);
     relay.onEvent.stop(this.handleRelayEvent);
     relay.onEose.stop(this.handleRelayEose);
+    relay.onResult.stop(this.handleRelayResult);
   }
 
   /**
@@ -210,6 +264,30 @@ export class Mux {
 
       this.healthyWatchers.add(watcher);
     });
+  }
+
+  /**
+   * `publish` method publishes event to ALL relays(regardless of healthy or not).
+   * This method verifies event before publishing.
+   * 
+   * @param event Event will be published
+   * @param options 
+   */
+  publish(event: Event, options: PublishOptions = {}) {
+    verifyEvent(event)
+      .then(result => {
+        if (typeof result === 'string') {
+          throw new Error(`failed to publish event: ${result}`);
+        }
+
+        const targets = this.allRelays;
+
+        this.cmds[event.id] = new CommandResult(targets, options.onResult);
+        for (const relay of targets) {
+          relay.publish(event, options.timeout || 5000)
+        }
+      })
+      .catch(e => { throw e });
   }
 
   /**

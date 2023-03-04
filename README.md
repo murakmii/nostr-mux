@@ -50,7 +50,7 @@ mux.waitRelayBecomesHealthy(1, 3000)
 mux.removeRelay(relay2.url);
 
 // Get events at once
-new Promise(resolve = {
+new Promise(resolve => {
   const events = [];
 
   mux.waitRelayBecomesHealthy(1, 3000)

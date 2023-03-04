@@ -1,5 +1,28 @@
-import { Mux } from './mux';
-import { EventMessage, Relay, RelayMessageEvent, Filter } from './relay';
+import { Mux, CommandResult } from './mux';
+import { EventMessage, Relay, RelayMessageEvent, Filter, OkMessage } from './relay';
+
+test('CommandResult', () => {
+  const relay1 = new Relay('wss://host1', { watchDogInterval: 0 });
+  const relay2 = new Relay('wss://host2', { watchDogInterval: 0 });
+  let result: RelayMessageEvent<OkMessage>[] | null = null;
+
+  const sut = new CommandResult([relay1, relay2], r => result = r);
+
+  expect(sut.hasCompleted).toBe(false);
+
+  sut.consumeResult({ relay: relay1, received: { type: 'OK', eventID: 'E1', accepted: true, message: 'M1' } });
+
+  expect(sut.hasCompleted).toBe(false);
+  expect(result).toBe(null);
+
+  sut.consumeResult({ relay: relay2, received: { type: 'OK', eventID: 'E2', accepted: false, message: 'M2' } });
+
+  expect(sut.hasCompleted).toBe(true);
+  expect(result).toEqual([
+    { relay: relay1, received: { type: 'OK', eventID: 'E1', accepted: true, message: 'M1' } },
+    { relay: relay2, received: { type: 'OK', eventID: 'E2', accepted: false, message: 'M2' } },
+  ]);
+});
 
 describe('Mux', () => {
   test('addRelay', () => {
@@ -76,6 +99,54 @@ describe('Mux', () => {
   test('waitRelayBecomesHealthy(timeout)', async () => {
     const sut = new Mux();
     expect(await sut.waitRelayBecomesHealthy(1, 100)).toBe(false);
+  });
+
+  test('publish', async () => {
+    const relay1 = new Relay('wss://host-1', { watchDogInterval: 0 });
+    const relay2 = new Relay('wss://host-2', { watchDogInterval: 0 });
+    const sut = new Mux();
+
+    sut.addRelay(relay1);
+    sut.addRelay(relay2);
+
+    // @ts-ignore
+    relay1.ws.readyState = 1;
+    // @ts-ignore
+    relay1.ws.dispatch('open', null);
+
+    let results: RelayMessageEvent<OkMessage>[] | null = null;
+    sut.publish(
+      {
+        id: '75a1b3c28b7082e0c74c43f2f1d917217c9fd8d73017688c8ac4c70bb2966b56',
+        pubkey: 'fc137c5bb32f96849dff141bdf94c9e9426eeae0ecc1d2e67aa69bf8d04b2f1e',
+        created_at: 1677297041,
+        kind: 1,
+        tags: [],
+        content: 'hello, jest',
+        sig: '3451d8cfb61324ca23ee2b093058e79ab8b271acce7a2456a560ee36a517e13f90ae92f44d69f14ce75b8414a9ceeb7e781054ca9414a50052e07bf19ea24cdf',
+      },
+      {
+        onResult: (r: RelayMessageEvent<OkMessage>[]) => results = r,
+      }
+    );
+
+    await new Promise(r => setTimeout(r, 10));
+
+    // @ts-ignore
+    expect(sut.cmds['75a1b3c28b7082e0c74c43f2f1d917217c9fd8d73017688c8ac4c70bb2966b56']).not.toBe(undefined);
+
+    // @ts-ignore
+    relay1.ws.dispatch('message', { data: '["OK","75a1b3c28b7082e0c74c43f2f1d917217c9fd8d73017688c8ac4c70bb2966b56",true,"good"]' });
+
+    await new Promise(r => setTimeout(r, 10));
+
+    expect(results).toEqual([
+      { relay: relay1, received: { type: 'OK', eventID: '75a1b3c28b7082e0c74c43f2f1d917217c9fd8d73017688c8ac4c70bb2966b56', accepted: true, message: 'good' } },
+      { relay: relay2, received: { type: 'OK', eventID: '75a1b3c28b7082e0c74c43f2f1d917217c9fd8d73017688c8ac4c70bb2966b56', accepted: false, message: 'error: client timeout' } },
+    ]);
+    
+    // @ts-ignore
+    expect(sut.cmds).toEqual({});
   });
 
   test('subscribe', async () => {

@@ -247,14 +247,15 @@ export class Relay {
       return;
     }
 
-    if (!this.isHealthy) {
-      throw new Error(`relay(${this.url}) is NOT healthy`);
-    }
-
     this.log.debug(`[${this.url}] send event`, event);
 
-    this.ws?.send(JSON.stringify(['EVENT', event]));
-    this.cmds[event.id] = setTimeout(() => this.emitResult(buildErrorCommandResult(event.id, 'timeout')), timeout);
+    if (this.isHealthy) {
+      this.ws?.send(JSON.stringify(['EVENT', event]));
+    }
+    
+    this.cmds[event.id] = setTimeout(() => {
+      this.emitResult(buildErrorCommandResult(event.id, 'timeout'));
+    }, this.isHealthy ? timeout : 0);
   }
 
   /**
