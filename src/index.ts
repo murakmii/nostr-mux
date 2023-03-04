@@ -1,7 +1,7 @@
 export { 
   EmitterCallback,
   Emitter,
-} from './emitter.js';
+} from './core/emitter.js';
 
 export {
   Tag,
@@ -10,12 +10,12 @@ export {
   validateEvent,
   generateID,
   verifyEvent
-} from './event.js';
+} from './core/event.js';
 
 export {
   Logger,
   LogLevel,
-} from './logger.js';
+} from './core/logger.js';
 
 export {
   RelayMessage,
@@ -31,9 +31,10 @@ export {
   RelayMessageEvent,
 
   Relay,
-} from './relay.js';
+} from './core/relay.js';
 
 export {
   SubscriptionOptions,
+  Plugin,
   Mux,
-} from './mux.js';
+} from './core/mux.js';

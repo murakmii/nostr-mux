@@ -25,6 +25,16 @@ export interface SubscriptionOptions {
   onRecovered?: (relay: Relay) => Filter[];
 }
 
+export interface Plugin {
+  id(): string;
+
+  install(mux: Mux): void;
+  uninstall(mux: Mux): void;
+
+  capturePublishedEvent(event: Event): void;
+  captureReceivedEvent(e: RelayMessageEvent<EventMessage>): void;
+}
+
 class Subscription {
   private id: string;
   private eoseWaitList: Set<string>;
@@ -133,6 +143,7 @@ export class Mux {
   private subIDSeq: number;
   private cmds: { [K: string]: CommandResult };
   private healthyWatchers: Set<(() => void)>;
+  private plugins: { [K: string]: Plugin };
 
   private handleRelayHealthy: (e: RelayEvent) => void;
   private handleRelayEvent: (e: RelayMessageEvent<EventMessage>) => void;
@@ -145,8 +156,13 @@ export class Mux {
     this.subIDSeq = 1;
     this.cmds = {};
     this.healthyWatchers = new Set<(() => void)>();
+    this.plugins = {};
 
     this.handleRelayEvent = (e: RelayMessageEvent<EventMessage>): void => {
+      for (const pid in this.plugins) {
+        this.plugins[pid].captureReceivedEvent(e);
+      }
+
       this.subs[e.received.subscriptionID]?.consumeEvent(e);
     };
 
@@ -190,6 +206,20 @@ export class Mux {
 
   get healthyRelays(): Relay[] {
     return this.allRelays.filter(r => r.isHealthy);
+  }
+
+  installPlugin(plugin: Plugin) {
+    this.plugins[plugin.id()] = plugin;
+    plugin.install(this);
+  }
+
+  uninstallPlugin(pluginID: string) {
+    if (!this.plugins[pluginID]) {
+      return;
+    }
+
+    this.plugins[pluginID].uninstall(this);
+    delete this.plugins[pluginID];
   }
 
   /**
@@ -281,6 +311,10 @@ export class Mux {
         }
 
         const targets = this.allRelays.filter(r => r.isWritable);
+
+        for (const pid in this.plugins) {
+          this.plugins[pid].capturePublishedEvent(event);
+        }
 
         this.cmds[event.id] = new CommandResult(targets, options.onResult);
         for (const relay of targets) {
