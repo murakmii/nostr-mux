@@ -1,7 +1,7 @@
-import { Plugin, Mux } from "../core/mux";
-import { Event } from '../core/event';
-import { Emitter, SimpleEmitter } from "../core/emitter";
-import { EventMessage, RelayMessageEvent, Filter } from "../core/relay";
+import { Plugin, Mux } from "../core/mux.js";
+import { Event } from '../core/event.js';
+import { Emitter, SimpleEmitter } from "../core/emitter.js";
+import { EventMessage, RelayMessageEvent, Filter } from "../core/relay.js";
 
 export type AutoProfileSubscriberOptions = {
   collectPubkeyFromEvent?: (event: Event, relayURL?: string) => string[];
