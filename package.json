@@ -11,6 +11,14 @@
   },
   "author": "murakmii",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/murakmii/nostr-mux"
+  },
+  "homepage": "https://github.com/murakmii/nostr-mux",
+  "keywords": [
+    "nostr"
+  ],
   "devDependencies": {
     "@types/jest": "^29.4.0",
     "jest": "^29.4.3",
