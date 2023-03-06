@@ -152,7 +152,7 @@ export class AutoProfileSubscriber extends Plugin {
   private ticker: () => void;
   private activeTicker?: NodeJS.Timeout;
 
-  private cache: Cache<string, ProfileCacheEntry>;
+  readonly cache: Cache<string, ProfileCacheEntry>;
 
   constructor(options: AutoProfileSubscriberOptions = {}) {
     super();

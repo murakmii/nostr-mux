@@ -342,7 +342,6 @@ describe('AutoProfileSubscriber', () => {
       relayURL: 'wss://host',
     });
 
-    // @ts-ignore
     expect(sut.cache.get('PUBKEY')).toEqual({
       foundProfile: {
         name: 'nostr',
