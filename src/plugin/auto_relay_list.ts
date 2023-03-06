@@ -1,5 +1,5 @@
 import { Event, Tag } from "../core/event.js";
-import { Mux, Plugin } from "../core/mux";
+import { Mux, Plugin } from "../core/mux.js";
 import { buildSimpleLogger, Logger, LogLevel } from "../core/logger.js";
 import { 
   RelayMessageEvent, 
@@ -23,7 +23,7 @@ interface RelayListEntry extends RelayPermission {
   url: string;
 }
 
-export interface RelayManagerOptions {
+export interface AutoRelayListOptions {
   logger?: Logger | LogLevel;
   pubkey?: string;
   initialLoadTimeout?: number;
@@ -58,7 +58,7 @@ export const parseEvent = (e: RelayListEvent): RelayListEntry[] | null => {
   return entries;
 }
 
-export class RelayManager extends Plugin {
+export class AutoRelayList extends Plugin {
   private mux: Mux | null = null;
   private log: Logger;
   private pubkey: string | null;
@@ -67,7 +67,7 @@ export class RelayManager extends Plugin {
   private lastEvent: RelayListEvent | null = null;
   private relayOptsTpl: RelayOptions; 
 
-  constructor(options: RelayManagerOptions = {}) {
+  constructor(options: AutoRelayListOptions = {}) {
     super();
     this.log = buildSimpleLogger(options.logger);
     this.pubkey = options.pubkey || null;
@@ -77,7 +77,7 @@ export class RelayManager extends Plugin {
   }
 
   id(): string {
-    return 'relay_list_tracking';
+    return 'auto_relay_list';
   }
 
   install(mux: Mux): void {
@@ -85,7 +85,7 @@ export class RelayManager extends Plugin {
 
     this.fallbackRelays = this.mux.allRelays.map(r => r.url);
     if (this.fallbackRelays.length === 0) {
-      throw new Error('[nostr-mux:plugin:RelayManager] requires default relays on Mux');
+      throw new Error('[nostr-mux:plugin:AutoRelayList] requires default relays on Mux');
     }
 
     this.startSubscription();
@@ -101,7 +101,7 @@ export class RelayManager extends Plugin {
     }
 
     if (this.pubkey === null) {
-      this.log.warn('[nostr-mux:plugin:RelayManager] ignore published event(configured pubkey is null)');
+      this.log.warn('[nostr-mux:plugin:AutoRelayList] ignore published event(configured pubkey is null)');
     }
 
     if (this.pubkey !== event.pubkey) {
@@ -133,7 +133,7 @@ export class RelayManager extends Plugin {
       return;
     }
 
-    const filters = [{ kinds: [relayListKind], authors: [pubkey] }];
+    const filters: [Filter, ...Filter[]] = [{ kinds: [relayListKind], authors: [pubkey] }];
     let beforeEose = true;
     let event: RelayListEvent | null = null;
 
@@ -201,6 +201,6 @@ export class RelayManager extends Plugin {
 
     current.forEach((_, url) => this.mux?.removeRelay(url));
 
-    this.log.debug('[nostr-mux:plugin:RelayManager]: applied relay list', entries);
+    this.log.debug('[nostr-mux:plugin:AutoRelayList]: applied relay list', entries);
   }
 }

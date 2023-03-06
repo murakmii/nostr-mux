@@ -40,6 +40,13 @@ export {
 } from './core/mux.js';
 
 export {
-  RelayManagerOptions,
-  RelayManager
-} from './plugin/relay_manager.js';
+  AutoRelayListOptions,
+  AutoRelayList
+} from './plugin/auto_relay_list.js';
+
+export {
+  Cache,
+  Profile,
+  AutoProfileSubscriberOptions,
+  AutoProfileSubscriber,
+} from './plugin/auto_profile_subscriber.js';

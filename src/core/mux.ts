@@ -16,7 +16,7 @@ export interface PublishOptions {
 }
 
 export interface SubscriptionOptions {
-  filters: Filter[];
+  filters: [Filter, ...Filter[]];
   onEvent: (e: RelayMessageEvent<EventMessage>) => void;
 
   id?: string;
@@ -32,6 +32,7 @@ export abstract class Plugin {
   uninstall(): void {}
 
   capturePublishedEvent(event: Event): void {}
+  captureRequestedFilter(filter: Filter): void {}
   captureReceivedEvent(e: RelayMessageEvent<EventMessage>): void {}
 }
 
@@ -338,6 +339,12 @@ export class Mux {
 
     const initialRelays = this.healthyRelays.filter(r => r.isReadable);
     this.subs[subID] = new Subscription(subID, initialRelays, options);
+
+    for (const filter of options.filters) {
+      for (const pid in this.plugins) {
+        this.plugins[pid].captureRequestedFilter(filter);
+      }
+    }
 
     for (const relay of initialRelays) {
       relay.request(subID, options.filters, { eoseTimeout: options.eoseTimeout });

@@ -1,5 +1,27 @@
-import { Mux, CommandResult } from './mux';
+import { Mux, Plugin, CommandResult } from './mux';
+import { Event } from './event';
 import { EventMessage, Relay, RelayMessageEvent, Filter, OkMessage } from './relay';
+
+class StubPlugin extends Plugin {
+  readonly filters: Filter[];
+  readonly published: Event[];
+  readonly received: RelayMessageEvent<EventMessage>[];
+
+  constructor() {
+    super();
+    this.filters = [];
+    this.published = [];
+    this.received = [];
+  }
+
+  id(): string {
+    return 'stub';
+  }
+
+  capturePublishedEvent(event: Event): void { this.published.push(event); }
+  captureRequestedFilter(filter: Filter): void { this.filters.push(filter); }
+  captureReceivedEvent(e: RelayMessageEvent<EventMessage>): void { this.received.push(e); }
+}
 
 test('CommandResult', () => {
   const relay1 = new Relay('wss://host1', { watchDogInterval: 0 });
@@ -295,5 +317,56 @@ describe('Mux', () => {
 
     // @ts-ignore
     expect(relay.ws.sent).toEqual([]);
+  });
+
+  test('plugin support', async () => {
+    const relay = new Relay('wss://host', { watchDogInterval: 0 });
+    const sut = new Mux();
+    const plugin = new StubPlugin();
+
+    sut.installPlugin(plugin);
+    sut.addRelay(relay);
+
+    // @ts-ignore
+    relay.ws.readyState = 1;
+    // @ts-ignore
+    relay.ws.dispatch('open', null);
+
+    sut.subscribe({
+      id: 'my-sub',
+      filters: [{ kinds: [1] }],
+      onEvent: () => {},
+      eoseTimeout: 0,
+    });
+
+    const event = {
+      id: '75a1b3c28b7082e0c74c43f2f1d917217c9fd8d73017688c8ac4c70bb2966b56',
+      pubkey: 'fc137c5bb32f96849dff141bdf94c9e9426eeae0ecc1d2e67aa69bf8d04b2f1e',
+      created_at: 1677297041,
+      kind: 1,
+      tags: [],
+      content: 'hello, jest',
+      sig: '3451d8cfb61324ca23ee2b093058e79ab8b271acce7a2456a560ee36a517e13f90ae92f44d69f14ce75b8414a9ceeb7e781054ca9414a50052e07bf19ea24cdf',
+    };
+
+    sut.publish(event);
+
+    // @ts-ignore
+    relay.ws.dispatch('message', {
+      data: JSON.stringify(['EVENT', 'my-sub', event]),
+    });
+
+    await new Promise(r => setTimeout(r, 100));
+
+    expect(plugin.filters).toEqual([{ kinds: [1] }]);
+    expect(plugin.published).toEqual([event]);
+    expect(plugin.received).toEqual([{
+      relay,
+      received: {
+        type: 'EVENT',
+        subscriptionID: 'my-sub',
+        event,
+      }
+    }]);
   });
 });

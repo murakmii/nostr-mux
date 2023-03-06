@@ -3,7 +3,7 @@
 Multiplexed connections management for Nostr client.
 
 ```js
-import { Mux, Relay, RelayManager } from 'nostr-mux';
+import { Mux, Relay, AutoRelayList, AutoProfileSubscriber } from 'nostr-mux';
 
 // Instantiate connection for relay.
 const relay1 = new Relay('wss://relay.snort.social');
@@ -16,11 +16,26 @@ mux.addRelay(relay1);
 mux.addRelay(relay2);
 
 // If necessary, you can use relay management plugin integrates relay list metadata(NIP-65)
-const relayManager = new RelayManager({
+const autoRelayList = new AutoRelayList({
   pubkey: '<hex pubkey>',
 });
 
-mux.installPlugin(relayManager);
+mux.installPlugin(autoRelayList);
+
+// If necessary, you can use automated profile subscribing plugin.
+const autoProfileSubscriber = new AutoProfileSubscriber({
+  collectPubkeyFromEvent: (e, relayURL) => {
+    // DONT collect from outgoing event.
+    if (!relayURL) {
+      return [];
+    }
+
+    // Subscribe automatically profile for creator of note.
+    return e.kind === 1 ? [e.pubkey] : [];
+  }
+});
+
+mux.installPlugin(autoProfileSubscriber);
 
 // Subscribe
 mux.waitRelayBecomesHealthy(1, 3000)

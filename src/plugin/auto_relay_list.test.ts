@@ -1,7 +1,7 @@
 import { Event } from '../core/event';
 import { Mux } from '../core/mux';
 import { Relay } from '../core/relay';
-import { parseEvent, RelayManager } from './relay_manager';
+import { parseEvent, AutoRelayList } from './auto_relay_list';
 
 test.each([
   {
@@ -30,10 +30,10 @@ test.each([
   expect(parseEvent(event as Event)).toEqual(expected);
 });
 
-describe('RelayManager', () => {
+describe('AutoRelayList', () => {
   test('install', async () => {
     const mux = new Mux();
-    const sut = new RelayManager({
+    const sut = new AutoRelayList({
       pubkey: 'my-pubkey',
       initialLoadTimeout: 10,
       relayOptionsTemplate: {
@@ -89,7 +89,7 @@ describe('RelayManager', () => {
   });
 
   test('fallbackRelayListEvent', () => {
-    const sut = new RelayManager();
+    const sut = new AutoRelayList();
 
     // @ts-ignore
     sut.fallbackRelays = ['wss://host1', 'wss://host2'];
@@ -122,7 +122,7 @@ describe('RelayManager', () => {
     mux.addRelay(new Relay('wss://host1', { watchDogInterval: 0 }));
     mux.addRelay(new Relay('wss://host2', { watchDogInterval: 0, read: true, write: false }));
 
-    const sut = new RelayManager({ relayOptionsTemplate: { watchDogInterval: 0 } });
+    const sut = new AutoRelayList({ relayOptionsTemplate: { watchDogInterval: 0 } });
 
     // @ts-ignore
     sut.mux = mux;
