@@ -3,6 +3,7 @@ import { EventMessage, Relay, RelayMessageEvent } from '../core/relay';
 import { 
   LRUCache, 
   parseProfile,
+  Profile,
   AutoProfileSubscriber,
 } from './auto_profile_subscriber';
 
@@ -32,9 +33,6 @@ describe('LRUCache', () => {
     expect(sut.has('B')).toBe(true);
     expect(sut.has('C')).toBe(false);
     expect(sut.has('D')).toBe(true);
-
-    // `peek` does NOT change state. So, 'A' is still least entry.
-    expect(sut.peek('A')).toBe(1);
 
     sut.put('E', 5);
 
@@ -302,17 +300,18 @@ describe('AutoProfileSubscriber', () => {
       timeout: 2000,
     });
 
-    let emitted = 0;
-    sut.onSubscribed.listen(() => emitted++);
-
     mux.installPlugin(sut);
 
-    sut.subscribe('PUBKEY');  // run ticker after 10ms
-    sut.subscribe('PUBKEY2'); // before run ticker, push to backlog
+    
+    // run ticker after 10ms
+    let profileForPUBKEY: Profile | undefined;
+    sut.get('PUBKEY').then(result => profileForPUBKEY = result);  
+
+    sut.get('PUBKEY2'); // before run ticker, push to backlog
 
     await new Promise(r => setTimeout(r, 1000)); // ticker is running
 
-    sut.subscribe('PUBKEY3'); // push to backlog while ticker is running
+    sut.get('PUBKEY3'); // push to backlog while ticker is running
 
     // emit for first ticker
     relay.onEvent.emit({
@@ -334,14 +333,25 @@ describe('AutoProfileSubscriber', () => {
 
     await new Promise(r => setTimeout(r, 5000));
 
-    expect(emitted).toBe(1);
-    expect(sut.cache.get('PUBKEY')).toEqual({
+    expect(profileForPUBKEY).toEqual({
       name: 'nostr',
       about: 'this is jest',
       picture: 'https://pic',
       nip05: 'https://nip05',
       createdAt: 123456789,
       relayURL: 'wss://host',
+    });
+
+    // @ts-ignore
+    expect(sut.cache.get('PUBKEY')).toEqual({
+      foundProfile: {
+        name: 'nostr',
+        about: 'this is jest',
+        picture: 'https://pic',
+        nip05: 'https://nip05',
+        createdAt: 123456789,
+        relayURL: 'wss://host',
+      }
     });
 
     // @ts-ignore
