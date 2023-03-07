@@ -2,7 +2,9 @@ import { Plugin, Mux } from "../core/mux.js";
 import { Event } from '../core/event.js';
 import { EventMessage, RelayMessageEvent, Filter } from "../core/relay.js";
 
-export type AutoProfileSubscriberOptions = {
+export type AutoProfileSubscriberOptions<T> = {
+  parser: ProfileParser<T>;
+
   collectPubkeyFromEvent?: (event: Event, relayURL?: string) => string[];
   collectPubkeyFromFilter?: (filter: Filter) => string[];
 
@@ -12,13 +14,49 @@ export type AutoProfileSubscriberOptions = {
   timeout?: number;
 }
 
-export type Profile = {
+export type Profile<T> = {
+  properties: T;
+  createdAt: number;
+  relayURL: string;
+}
+
+export type GenericProfile = {
   name?: string;
+  displayName?: string;
   about?: string;
   picture?: string;
   nip05?: string;
-  createdAt: number;
-  relayURL: string;
+}
+
+export type UnknownProfile = { [K: string]: any };
+
+export type ProfileParser<T> = (conetnt: UnknownProfile) => T | undefined;
+
+export const parseGenericProfile: ProfileParser<GenericProfile> = (content) => {
+  const profile: GenericProfile = {};
+  const { name, display_name, about, picture, nip05 } = content;
+
+  if (typeof name === 'string' && name.length > 0) {
+    profile.name = name;
+  }
+
+  if (typeof display_name === 'string' && display_name.length > 0) {
+    profile.displayName = display_name;
+  }
+
+  if (typeof about === 'string' && about.length > 0) {
+    profile.about = about;
+  }
+
+  if (typeof picture === 'string' && picture.length > 0) {
+    profile.picture = picture;
+  }
+
+  if (typeof nip05 === 'string' && nip05.length > 0) {
+    profile.nip05 = nip05;
+  }
+
+  return profile;
 }
 
 export interface Cache<K, V> {
@@ -92,7 +130,7 @@ export class LRUCache<K, V> implements Cache<K, V> {
   }
 }
 
-export const parseProfile = (e: RelayMessageEvent<EventMessage>): Profile | undefined => {
+export const parseProfile = <T>(e: RelayMessageEvent<EventMessage>, parser: ProfileParser<T>): Profile<T> | undefined => {
   const event = e.received.event;
   if (event.kind !== 0) {
     return undefined;
@@ -109,42 +147,29 @@ export const parseProfile = (e: RelayMessageEvent<EventMessage>): Profile | unde
     return undefined;
   }
 
-  const profile: Profile = { createdAt: event.created_at, relayURL: e.relay.url };
-  const { name, about, picture, nip05 } = parsed;
-
-  if (typeof name === 'string' && name.length > 0) {
-    profile.name = name;
+  const properties = parser(parsed);
+  if (!properties) {
+    return undefined;
   }
 
-  if (typeof about === 'string' && about.length > 0) {
-    profile.about = about;
-  }
-
-  if (typeof picture === 'string' && picture.length > 0) {
-    profile.picture = picture;
-  }
-
-  if (typeof nip05 === 'string' && nip05.length > 0) {
-    profile.nip05 = nip05;
-  }
-
-  return profile;
+  return { properties, createdAt: event.created_at, relayURL: e.relay.url };
 };
 
 const autoProfileSubscriberSubID = '__profile';
 
-type ProfileCacheEntry = { foundProfile?: Profile };
+type ProfileCacheEntry<T> = { foundProfile?: Profile<T> };
 
 /**
  * AutoProfileSubscriber is plugin that subscribes profiles automatically.
  * When profile was subscribed, `onSubscribed` is emitted and profile is cached in `cache` property.
  */
-export class AutoProfileSubscriber extends Plugin {
+export class AutoProfileSubscriber<T> extends Plugin {
   private mux?: Mux;
+  private parser: ProfileParser<T>;
   private tickInterval: number;
   private timeout: number;
   private pubkeyBacklog: Set<string>;
-  private waitingPromises: { [K: string]: ((result: Profile | undefined) => void)[] };
+  private waitingPromises: { [K: string]: ((result: Profile<T> | undefined) => void)[] };
 
   private collectPubkeyFromFilter?: (filter: Filter) => string[];
   private collectPubkeyFromEvent?: (event: Event, relayURL?: string) => string[];
@@ -152,10 +177,11 @@ export class AutoProfileSubscriber extends Plugin {
   private ticker: () => void;
   private activeTicker?: NodeJS.Timeout;
 
-  readonly cache: Cache<string, ProfileCacheEntry>;
+  private cache: Cache<string, ProfileCacheEntry<T>>;
 
-  constructor(options: AutoProfileSubscriberOptions = {}) {
+  constructor(options: AutoProfileSubscriberOptions<T>) {
     super();
+    this.parser = options.parser;
 
     if (!options.collectPubkeyFromEvent && !options.collectPubkeyFromFilter) {
       throw new Error("AutoProfileSubscriber's options is NOT set collector function");
@@ -175,7 +201,7 @@ export class AutoProfileSubscriber extends Plugin {
     this.collectPubkeyFromEvent = options.collectPubkeyFromEvent;
 
     this.ticker = (): void => {
-      const results: { [K: string]: ProfileCacheEntry } = {};
+      const results: { [K: string]: ProfileCacheEntry<T> } = {};
       for (const pubkey of this.pubkeyBacklog) {
         if (this.cache.has(pubkey)) {
           this.resolveWaitingPromises(pubkey, this.cache.get(pubkey)?.foundProfile);
@@ -197,7 +223,7 @@ export class AutoProfileSubscriber extends Plugin {
         ],
         onEvent: e => {
           const pubkey = e.received.event.pubkey;
-          const loaded = parseProfile(e);
+          const loaded = parseProfile(e, this.parser);
           if (!loaded || !(pubkey in results)) {
             return;
           }
@@ -279,7 +305,7 @@ export class AutoProfileSubscriber extends Plugin {
     }
   }
 
-  get(pubkey: string): Promise<Profile | undefined> {
+  get(pubkey: string): Promise<Profile<T> | undefined> {
     if (!this.mux) {
       throw new Error('AutoProfileSubscriber is NOT installed');
     }
@@ -298,6 +324,14 @@ export class AutoProfileSubscriber extends Plugin {
     });
   }
 
+  evictCache() {
+    this.cache.evict();
+  }
+
+  clearCache() {
+    this.cache.clear();
+  }
+
   private enqueueBacklog(pubkey: string): void {
     if (this.cache.has(pubkey) || this.pubkeyBacklog.has(pubkey)) {
       return;
@@ -310,7 +344,7 @@ export class AutoProfileSubscriber extends Plugin {
     }
   }
 
-  private resolveWaitingPromises(pubkey: string, result: Profile | undefined) {
+  private resolveWaitingPromises(pubkey: string, result: Profile<T> | undefined) {
     const resolves = this.waitingPromises[pubkey];
     if (!resolves) {
       return;

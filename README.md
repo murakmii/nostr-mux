@@ -3,7 +3,14 @@
 Multiplexed connections management for Nostr client.
 
 ```js
-import { Mux, Relay, AutoRelayList, AutoProfileSubscriber } from 'nostr-mux';
+import { 
+  Mux, 
+  Relay, 
+  AutoRelayList,
+  AutoProfileSubscriber,
+  GenericProfile,
+  parseGenericProfile,
+} from 'nostr-mux';
 
 // Instantiate connection for relay.
 const relay1 = new Relay('wss://relay.snort.social');
@@ -24,6 +31,7 @@ mux.installPlugin(autoRelayList);
 
 // If necessary, you can use automated profile subscribing plugin.
 const autoProfileSubscriber = new AutoProfileSubscriber({
+  parser: parseGenericProfile,
   collectPubkeyFromEvent: (e, relayURL) => {
     // DONT collect from outgoing event.
     if (!relayURL) {

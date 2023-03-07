@@ -47,6 +47,10 @@ export {
 export {
   Cache,
   Profile,
+  GenericProfile,
+  UnknownProfile,
+  ProfileParser,
+  parseGenericProfile,
   AutoProfileSubscriberOptions,
   AutoProfileSubscriber,
 } from './plugin/auto_profile_subscriber.js';

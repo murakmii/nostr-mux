@@ -5,6 +5,8 @@ import {
   parseProfile,
   Profile,
   AutoProfileSubscriber,
+  parseGenericProfile,
+  GenericProfile,
 } from './auto_profile_subscriber';
 
 describe('LRUCache', () => {
@@ -89,100 +91,133 @@ const buildParseProfileInput = (kind: number, content: string): RelayMessageEven
 test.each([
   {
     name: 'full',
-    message: buildParseProfileInput(0, '{"name":"nostr","about":"this is jest","picture":"https://pic","nip05":"https://nip05","other":"foo"}'),
+    message: buildParseProfileInput(0, '{"name":"nostr","display_name":"Nostr","about":"this is jest","picture":"https://pic","nip05":"https://nip05","other":"foo"}'),
     expected: {
-      name: 'nostr',
-      about: 'this is jest',
-      picture: 'https://pic',
-      nip05: 'https://nip05',
+      properties: {
+        name: 'nostr',
+        displayName: 'Nostr',
+        about: 'this is jest',
+        picture: 'https://pic',
+        nip05: 'https://nip05',
+      },
       createdAt: 123456789,
       relayURL: 'wss://host'
     },
   },
   {
     name: 'name is not string',
-    message: buildParseProfileInput(0, '{"name":123,"about":"this is jest","picture":"https://pic","nip05":"https://nip05","other":"foo"}'),
+    message: buildParseProfileInput(0, '{"name":123,"display_name":"Nostr","about":"this is jest","picture":"https://pic","nip05":"https://nip05","other":"foo"}'),
     expected: {
-      about: 'this is jest',
-      picture: 'https://pic',
-      nip05: 'https://nip05',
+      properties: {
+        displayName: 'Nostr',
+        about: 'this is jest',
+        picture: 'https://pic',
+        nip05: 'https://nip05',
+      },
       createdAt: 123456789,
       relayURL: 'wss://host'
     },
   },
   {
     name: 'name is empty',
-    message: buildParseProfileInput(0, '{"name":"","about":"this is jest","picture":"https://pic","nip05":"https://nip05","other":"foo"}'),
+    message: buildParseProfileInput(0, '{"name":"","display_name":"Nostr","about":"this is jest","picture":"https://pic","nip05":"https://nip05","other":"foo"}'),
     expected: {
-      about: 'this is jest',
-      picture: 'https://pic',
-      nip05: 'https://nip05',
+      properties: {
+        displayName: 'Nostr',
+        about: 'this is jest',
+        picture: 'https://pic',
+        nip05: 'https://nip05',
+      },
+      createdAt: 123456789,
+      relayURL: 'wss://host'
+    },
+  },
+  {
+    name: 'display_name is not string',
+    message: buildParseProfileInput(0, '{"display_name":123,"about":"this is jest","picture":"https://pic","nip05":"https://nip05","other":"foo"}'),
+    expected: {
+      properties: {
+        about: 'this is jest',
+        picture: 'https://pic',
+        nip05: 'https://nip05',
+      },
+      createdAt: 123456789,
+      relayURL: 'wss://host'
+    },
+  },
+  {
+    name: 'display_name is empty',
+    message: buildParseProfileInput(0, '{"display_name":"","about":"this is jest","picture":"https://pic","nip05":"https://nip05","other":"foo"}'),
+    expected: {
+      properties: {
+        about: 'this is jest',
+        picture: 'https://pic',
+        nip05: 'https://nip05',
+      },
       createdAt: 123456789,
       relayURL: 'wss://host'
     },
   },
   {
     name: 'about is not string',
-    message: buildParseProfileInput(0, '{"name":"nostr","about":123,"picture":"https://pic","nip05":"https://nip05","other":"foo"}'),
+    message: buildParseProfileInput(0, '{"about":123,"picture":"https://pic","nip05":"https://nip05","other":"foo"}'),
     expected: {
-      name: "nostr",
-      picture: 'https://pic',
-      nip05: 'https://nip05',
+      properties: {
+        picture: 'https://pic',
+        nip05: 'https://nip05',
+      },
       createdAt: 123456789,
       relayURL: 'wss://host'
     },
   },
   {
     name: 'about is empty',
-    message: buildParseProfileInput(0, '{"name":"nostr","about":"","picture":"https://pic","nip05":"https://nip05","other":"foo"}'),
+    message: buildParseProfileInput(0, '{"about":"","picture":"https://pic","nip05":"https://nip05","other":"foo"}'),
     expected: {
-      name: "nostr",
-      picture: 'https://pic',
-      nip05: 'https://nip05',
+      properties: {
+        picture: 'https://pic',
+        nip05: 'https://nip05',
+      },
       createdAt: 123456789,
       relayURL: 'wss://host'
     },
   },
   {
     name: 'picture is not string',
-    message: buildParseProfileInput(0, '{"name":"nostr","about":"this is jest","picture":123,"nip05":"https://nip05","other":"foo"}'),
+    message: buildParseProfileInput(0, '{"picture":123,"nip05":"https://nip05","other":"foo"}'),
     expected: {
-      name: "nostr",
-      about: 'this is jest',
-      nip05: 'https://nip05',
+      properties: {
+        nip05: 'https://nip05',
+      },
       createdAt: 123456789,
       relayURL: 'wss://host'
     },
   },
   {
     name: 'picture is empty',
-    message: buildParseProfileInput(0, '{"name":"nostr","about":"this is jest","picture":"","nip05":"https://nip05","other":"foo"}'),
+    message: buildParseProfileInput(0, '{"picture":"","nip05":"https://nip05","other":"foo"}'),
     expected: {
-      name: "nostr",
-      about: 'this is jest',
-      nip05: 'https://nip05',
+      properties: {
+        nip05: 'https://nip05',
+      },
       createdAt: 123456789,
       relayURL: 'wss://host'
     },
   },
   {
     name: 'nip05 is not string',
-    message: buildParseProfileInput(0, '{"name":"nostr","about":"this is jest","picture":"https://pic","nip05":123,"other":"foo"}'),
+    message: buildParseProfileInput(0, '{"nip05":123,"other":"foo"}'),
     expected: {
-      name: 'nostr',
-      about: 'this is jest',
-      picture: 'https://pic',
+      properties: {},
       createdAt: 123456789,
       relayURL: 'wss://host'
     },
   },
   {
     name: 'nip05 is empty',
-    message: buildParseProfileInput(0, '{"name":"nostr","about":"this is jest","picture":"https://pic","nip05":"","other":"foo"}'),
+    message: buildParseProfileInput(0, '{"nip05":"","other":"foo"}'),
     expected: {
-      name: 'nostr',
-      about: 'this is jest',
-      picture: 'https://pic',
+      properties: {},
       createdAt: 123456789,
       relayURL: 'wss://host'
     },
@@ -191,6 +226,7 @@ test.each([
     name: 'no property',
     message: buildParseProfileInput(0, '{}'),
     expected: {
+      properties: {},
       createdAt: 123456789,
       relayURL: 'wss://host'
     },
@@ -210,13 +246,14 @@ test.each([
     message: buildParseProfileInput(0, '{'),
     expected: undefined,
   }
-])('parseProfile($name)', ({ message, expected }) => {
-  expect(parseProfile(message)).toEqual(expected);
+])('parseProfile($name, parseGenericProfile)', ({ message, expected }) => {
+  expect(parseProfile(message, parseGenericProfile)).toEqual(expected);
 });
 
 describe('AutoProfileSubscriber', () => {
   test('capturePublishedEvent', () => {
     const sut = new AutoProfileSubscriber({
+      parser: parseGenericProfile,
       collectPubkeyFromEvent: (e, relayURL) => {
         return [e.pubkey];
       },
@@ -240,6 +277,7 @@ describe('AutoProfileSubscriber', () => {
 
   test('captureReceivedEvent', () => {
     const sut = new AutoProfileSubscriber({
+      parser: parseGenericProfile,
       collectPubkeyFromEvent: (e, relayURL) => {
         return [`${e.pubkey}-${relayURL}`];
       },
@@ -270,6 +308,7 @@ describe('AutoProfileSubscriber', () => {
 
   test('captureRequestedFilter', () => {
     const sut = new AutoProfileSubscriber({
+      parser: parseGenericProfile,
       collectPubkeyFromFilter: (filter) => {
         return [filter.authors?.pop() || 'N/A'];
       },
@@ -295,6 +334,7 @@ describe('AutoProfileSubscriber', () => {
     relay.ws.dispatch('open', null);
 
     const sut = new AutoProfileSubscriber({
+      parser: parseGenericProfile,
       collectPubkeyFromFilter: () => { return []; },
       tickInterval: 10,
       timeout: 2000,
@@ -302,9 +342,8 @@ describe('AutoProfileSubscriber', () => {
 
     mux.installPlugin(sut);
 
-    
     // run ticker after 10ms
-    let profileForPUBKEY: Profile | undefined;
+    let profileForPUBKEY: Profile<GenericProfile> | undefined;
     sut.get('PUBKEY').then(result => profileForPUBKEY = result);  
 
     sut.get('PUBKEY2'); // before run ticker, push to backlog
@@ -321,7 +360,7 @@ describe('AutoProfileSubscriber', () => {
         subscriptionID: '__profile',
         event: {
           kind: 0,
-          content: '{"name":"nostr","about":"this is jest","picture":"https://pic","nip05":"https://nip05"}',
+          content: '{"name":"nostr","display_name":"Nostr","about":"this is jest","picture":"https://pic","nip05":"https://nip05"}',
           id: 'ID', 
           pubkey: 'PUBKEY', 
           created_at: 123456789,
@@ -334,20 +373,27 @@ describe('AutoProfileSubscriber', () => {
     await new Promise(r => setTimeout(r, 5000));
 
     expect(profileForPUBKEY).toEqual({
-      name: 'nostr',
-      about: 'this is jest',
-      picture: 'https://pic',
-      nip05: 'https://nip05',
+      properties: {
+        name: 'nostr',
+        displayName: 'Nostr',
+        about: 'this is jest',
+        picture: 'https://pic',
+        nip05: 'https://nip05',
+      },
       createdAt: 123456789,
       relayURL: 'wss://host',
     });
 
+    // @ts-ignore
     expect(sut.cache.get('PUBKEY')).toEqual({
       foundProfile: {
-        name: 'nostr',
-        about: 'this is jest',
-        picture: 'https://pic',
-        nip05: 'https://nip05',
+        properties: {
+          name: 'nostr',
+          displayName: 'Nostr',
+          about: 'this is jest',
+          picture: 'https://pic',
+          nip05: 'https://nip05',
+        },
         createdAt: 123456789,
         relayURL: 'wss://host',
       }
