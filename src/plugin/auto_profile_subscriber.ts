@@ -248,6 +248,8 @@ export class AutoProfileSubscriber<T> extends Plugin {
           // If pubkey was pushed to backlog while ticker is running, we run next ticker immediately.
           if (this.pubkeyBacklog.size > 0) {
             this.activeTicker = setTimeout(this.ticker, 0);
+          } else {
+            this.activeTicker = undefined;
           }
         },
         eoseTimeout: this.timeout,
