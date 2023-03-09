@@ -1,5 +1,5 @@
-import { Mux, Plugin, CommandResult } from './mux';
-import { Event } from './event';
+import { Mux, Plugin, CommandResult, EventMatcher } from './mux';
+import { Event, Tag } from './event';
 import { EventMessage, Relay, RelayMessageEvent, Filter, OkMessage } from './relay';
 
 class StubPlugin extends Plugin {
@@ -22,6 +22,153 @@ class StubPlugin extends Plugin {
   captureRequestedFilter(filter: Filter): void { this.filters.push(filter); }
   captureReceivedEvent(e: RelayMessageEvent<EventMessage>): void { this.received.push(e); }
 }
+
+describe('EventMatcher', () => {
+  test.each([
+    {
+      name: 'match id',
+      filter: { ids: ['ID', 'ID2'] },
+      event: {
+        id: 'ID',
+        kind: 1,
+        pubkey: 'PUBKEY',
+        content: 'hello, EventMatcher',
+        tags: [['e', 'ID'] as Tag],
+        created_at: 123456789,
+        sig: 'SIG',
+      },
+      expected: true,
+    },
+    {
+      name: 'match kind',
+      filter: { kinds: [0, 1, 2] },
+      event: {
+        id: 'ID',
+        kind: 1,
+        pubkey: 'PUBKEY',
+        content: 'hello, EventMatcher',
+        tags: [['e', 'ID'] as Tag],
+        created_at: 123456789,
+        sig: 'SIG',
+      },
+      expected: true,
+    },
+    {
+      name: 'match pubkey',
+      filter: { authors: ['PUBKEY', 'PUBKEY2'] },
+      event: {
+        id: 'ID',
+        kind: 1,
+        pubkey: 'PUBKEY',
+        content: 'hello, EventMatcher',
+        tags: [['e', 'ID'] as Tag],
+        created_at: 123456789,
+        sig: 'SIG',
+      },
+      expected: true,
+    },
+    {
+      name: 'match tag',
+      filter: { '#e': ['ID', 'ID2'] } as Filter,
+      event: {
+        id: 'ID',
+        kind: 1,
+        pubkey: 'PUBKEY',
+        content: 'hello, EventMatcher',
+        tags: [['e', 'ID'] as Tag],
+        created_at: 123456789,
+        sig: 'SIG',
+      },
+      expected: true,
+    },
+    {
+      name: 'match since',
+      filter: { since: 123456780 } as Filter,
+      event: {
+        id: 'ID',
+        kind: 1,
+        pubkey: 'PUBKEY',
+        content: 'hello, EventMatcher',
+        tags: [['e', 'ID'] as Tag],
+        created_at: 123456789,
+        sig: 'SIG',
+      },
+      expected: true,
+    },
+    {
+      name: 'match until',
+      filter: { until: 123456790 } as Filter,
+      event: {
+        id: 'ID',
+        kind: 1,
+        pubkey: 'PUBKEY',
+        content: 'hello, EventMatcher',
+        tags: [['e', 'ID'] as Tag],
+        created_at: 123456789,
+        sig: 'SIG',
+      },
+      expected: true,
+    },
+    {
+      name: 'match all tags',
+      filter: { '#e': ['ID1', 'ID2', 'ID3'], '#p': ['P1', 'P2', 'P3'] } as Filter,
+      event: {
+        id: 'ID',
+        kind: 1,
+        pubkey: 'PUBKEY',
+        content: 'hello, EventMatcher',
+        tags: [['e', 'ID3'] as Tag, ['p', 'P1'] as Tag],
+        created_at: 123456789,
+        sig: 'SIG',
+      },
+      expected: true,
+    },
+    {
+      name: 'not match part of tags',
+      filter: { '#e': ['ID1', 'ID2', 'ID3'], '#p': ['P1', 'P2', 'P3'] } as Filter,
+      event: {
+        id: 'ID',
+        kind: 1,
+        pubkey: 'PUBKEY',
+        content: 'hello, EventMatcher',
+        tags: [['e', 'ID3'] as Tag, ['p', 'P4'] as Tag],
+        created_at: 123456789,
+        sig: 'SIG',
+      },
+      expected: false,
+    },
+    {
+      name: 'match all conditions',
+      filter: { authors: ['PUBKEY'], kinds: [1] } as Filter,
+      event: {
+        id: 'ID',
+        kind: 1,
+        pubkey: 'PUBKEY',
+        content: 'hello, EventMatcher',
+        tags: [['e', 'ID3'] as Tag, ['p', 'P1'] as Tag],
+        created_at: 123456789,
+        sig: 'SIG',
+      },
+      expected: true,
+    },
+    {
+      name: 'not match part of conditions',
+      filter: { authors: ['PUBKEY'], kinds: [1] } as Filter,
+      event: {
+        id: 'ID',
+        kind: 0,
+        pubkey: 'PUBKEY',
+        content: 'hello, EventMatcher',
+        tags: [['e', 'ID3'] as Tag, ['p', 'P1'] as Tag],
+        created_at: 123456789,
+        sig: 'SIG',
+      },
+      expected: false,
+    },
+  ])('test($name)', ({ filter, event, expected }) => {
+    expect(new EventMatcher(filter).test(event)).toBe(expected);
+  });
+});
 
 test('CommandResult', () => {
   const relay1 = new Relay('wss://host1', { watchDogInterval: 0 });

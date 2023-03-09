@@ -10,6 +10,11 @@ export interface IncompleteEvent {
   content: string;
 }
 
+/**
+ * `Event` represents event on Nostr
+ * 
+ * @see {@link https://github.com/nostr-protocol/nips/blob/master/01.md}
+ */
 export interface Event extends IncompleteEvent {
   id: string;
   sig: string;

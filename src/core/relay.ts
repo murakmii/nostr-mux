@@ -1,6 +1,6 @@
 import { Emitter, SimpleEmitter } from "./emitter.js";
 import { verifyEvent, Event } from "./event.js";
-import { SimpleLogger, Logger, LogLevel, buildSimpleLogger } from "./logger.js";
+import { Logger, LogLevel, buildSimpleLogger } from "./logger.js";
 
 // TODO: support AUTH
 export type RelayMessage = EventMessage | NoticeMessage | EoseMessage | OkMessage;
@@ -10,16 +10,48 @@ export type NoticeMessage = { type: 'NOTICE', message: string };
 export type EoseMessage = { type: 'EOSE', subscriptionID: string };
 export type OkMessage = { type: 'OK', eventID: string, accepted: boolean, message: string };
 
-export interface RelayPermission {
-  read?: boolean,
-  write?: boolean,
-}
-
+/**
+ * Options for Relay
+ */
 export interface RelayOptions extends RelayPermission {
   logger?: Logger | LogLevel,
+
+  /**
+   * Timeout(mill-seconds) configuration for connecting to relay.
+   * 
+   * @defaultValue 2000
+   */
   connectTimeout?: number;
+
+  /**
+   * Execution interval(mill-seconds) for WatchDog.
+   * 
+   * @remarks
+   * WatchDog periodically checks relay connectivity and reconnects if needed.
+   * If you want to disable WatchDog, set to 0.
+   * 
+   * @defaultValue 60000
+   */
   watchDogInterval?: number;
+
+  /**
+   * The time that to keep connection since last communicated with relay.
+   * 
+   * @defaultValue 60000
+   */
   keepAliveTimeout?: number;
+}
+
+export interface RelayPermission {
+  /**
+   * If you want to subscribe events from relay, you MUST set `read` as `true`.
+   */
+  read?: boolean,
+
+  /**
+   * If you want to publish events to relay, you MUST set `write` as `true`.
+   */
+  write?: boolean,
 }
 
 export interface RelayEvent {
@@ -30,6 +62,11 @@ export interface RelayMessageEvent<T extends RelayMessage> extends RelayEvent {
   received: T;
 }
 
+/**
+ * Conditions to get events from relay.
+ * 
+ * @see {@link https://github.com/nostr-protocol/nips/blob/master/01.md}
+ */
 export type Filter = {
   ids?: string[];
   authors?: string[];
@@ -196,10 +233,16 @@ export class Relay {
     }
   }
 
+  /**
+   * @return If relay is permitted reading, returns `true`.
+   */
   get isReadable(): boolean {
     return this.read;
   }
 
+  /**
+   * @return If relay is permitted writing, returns `true`.
+   */
   get isWritable(): boolean {
     return this.write;
   }
@@ -215,7 +258,6 @@ export class Relay {
   /**
    * `connect` function connects to relay.
    * This function also start WatchDog.
-   * WatchDog checks WebSocket periodically and reconnects if necessary.
    */
   connect(): void {
     if (this.ws) {
@@ -251,6 +293,15 @@ export class Relay {
     });
   }
 
+  /**
+   * `updatePermission` method changes reading and writing permission.
+   * 
+   * @remarks
+   * If you want to subscribe events from this relay, you MUST permit reading permission.
+   * Also, if you want to publish event to this relay, you MUST permit 
+   * 
+   * @param perm 
+   */
   updatePermission(perm: RelayPermission): void {
     if (typeof perm.read === 'boolean' && this.read !== perm.read) {
       this.read = perm.read;
@@ -293,7 +344,7 @@ export class Relay {
   }
 
   /**
-   * `request` function sends REQ message to relay and starts subscription.
+   * `request` method sends REQ message to relay and starts subscription.
    * 
    * @param subID Subscription ID
    * @param filters 
@@ -319,7 +370,7 @@ export class Relay {
   }
 
   /**
-   * `close` function sends CLOSE message to relay and stops subscription.
+   * `close` method sends CLOSE message to relay and stops subscription.
    * 
    * @param subID Subscription ID
    */
@@ -336,7 +387,7 @@ export class Relay {
   }
 
   /**
-   * `terminate` function closes WebSocket and stops WatchDog.
+   * `terminate` method closes WebSocket and stops WatchDog.
    */
   terminate() {
     if (this.watchDog) {
@@ -367,7 +418,7 @@ export class Relay {
   }
 
   /**
-   * `reset` function closes WebSocket and reset state.
+   * `reset` method closes WebSocket and reset state.
    * However, WatchDog still alive and it tries reconnecting later.
    * If we want to COMPLETELY kill connection to relay, we MUST call `terminate` function.
    * 

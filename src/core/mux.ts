@@ -36,10 +36,87 @@ export abstract class Plugin {
   captureReceivedEvent(e: RelayMessageEvent<EventMessage>): void {}
 }
 
+export class EventMatcher {
+  private ids?: Set<string>;
+  private authors?: Set<string>;
+  private kinds?: Set<number>;
+  private tags: { [K: string]: Set<string> };
+  private since?: number;
+  private until?: number;
+
+  constructor(filter: Filter) {
+    if (filter.ids) {
+      this.ids = new Set(filter.ids);
+    }
+
+    if (filter.authors) {
+      this.authors = new Set(filter.authors);
+    }
+
+    if (filter.kinds) {
+      this.kinds = new Set(filter.kinds);
+    }
+
+    this.tags = {};
+    for (const key in filter) {
+      if (key.startsWith('#')) {
+        const tag = key.slice(1);
+        if (!this.tags[tag]) {
+          this.tags[tag] = new Set();
+        }
+
+        for (const v of filter[`#${tag}`]) {
+          this.tags[tag].add(v);
+        }
+      }
+    }
+
+    this.since = filter.since;
+    this.until = filter.until;
+  }
+
+  test(event: Event): boolean {
+    if (this.ids && !this.ids.has(event.id)) {
+      return false;
+    }
+
+    if (this.authors && !this.authors.has(event.pubkey)) {
+      return false;
+    }
+
+    if (this.kinds && !this.kinds.has(event.kind)) {
+      return false;
+    }
+
+    let matchTag = true;
+    for (const expectTag in this.tags) {
+      if (!event.tags.find(t => t[0] === expectTag && this.tags[expectTag].has(t[1]))) {
+        matchTag = false;
+        break;
+      }
+    }
+
+    if (!matchTag) {
+      return false;
+    }
+
+    if (this.since && this.since > event.created_at) {
+      return false;
+    }
+
+    if (this.until && this.until < event.created_at) {
+      return false;
+    }
+
+    return true;
+  }
+}
+
 class Subscription {
   private id: string;
   private eoseWaitList: Set<string>;
   private filters: Filter[];
+  private eventMatchers: EventMatcher[];
   private eventHandler: (e: RelayMessageEvent<EventMessage>) => void;
   private eoseHandler: undefined | ((subID: string) => void);
   private recoveredHandler: undefined | ((relay: Relay) => Filter[]);
@@ -48,6 +125,7 @@ class Subscription {
     this.id = id;
     this.eoseWaitList = new Set(initialRelays.map(r => r.url));
     this.filters = subOptions.filters
+    this.eventMatchers = subOptions.filters.map(f => new EventMatcher(f));
     this.eventHandler = subOptions.onEvent;
     this.eoseHandler = subOptions.onEose;
     this.recoveredHandler = subOptions.onRecovered;
@@ -63,7 +141,16 @@ class Subscription {
   }
 
   consumeEvent(e: RelayMessageEvent<EventMessage>): void {
-    this.eventHandler(e);
+    // When we reuse subscription id with different filter,
+    // a event that does NOT match current filter could be responded
+    // by high-latency relays.
+    // So, we SHOULD always check whether event matches current filter.
+    for (const matcher of this.eventMatchers) {
+      if (matcher.test(e.received.event)) {
+        this.eventHandler(e);
+        break;
+      }
+    }
   }
 
   consumeEose(senderRelayURL: string): void {
