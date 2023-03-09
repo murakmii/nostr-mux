@@ -1,4 +1,4 @@
-import { Mux, Plugin, CommandResult, EventMatcher } from './mux';
+import { Mux, Plugin, Subscription, CommandResult, EventMatcher } from './mux';
 import { Event, Tag } from './event';
 import { EventMessage, Relay, RelayMessageEvent, Filter, OkMessage } from './relay';
 
@@ -170,6 +170,115 @@ describe('EventMatcher', () => {
   });
 });
 
+describe('Subscription', () => {
+  test('constructor', async () => {
+    let eose = false;
+    new Subscription('my-sub', [], {
+      filters: [{ kinds: [1] }],
+      onEvent: () => {},
+      onEose: () => eose = true
+    });
+
+    await new Promise(r => setTimeout(r, 100));
+
+    expect(eose).toBe(true);
+  });
+
+  test('consumeEvent', () => {
+    const events: Event[] = [];
+    const relay = new Relay('wss://host', { watchDogInterval: 0 });
+    const sut = new Subscription('my-sub', [], {
+      filters: [{ kinds: [0] }, { kinds: [1] }],
+      onEvent: m => events.push(m.received.event),
+    });
+
+    const event1 = {
+      id: 'EID1',
+      kind: 1,
+      pubkey: 'MYPUB',
+      content: 'hello',
+      tags: [],
+      created_at: 123456789,
+      sig: 'SIG'
+    };
+
+    const event2 = {
+      id: 'EID2',
+      kind: 42,
+      pubkey: 'MYPUB',
+      content: 'hello',
+      tags: [],
+      created_at: 123456789,
+      sig: 'SIG'
+    };
+    
+    sut.consumeEvent({ relay, received: { type: 'EVENT', subscriptionID: 'my-sub', event: event1 }});
+    sut.consumeEvent({ relay, received: { type: 'EVENT', subscriptionID: 'my-sub', event: event2 }});
+
+    expect(events).toEqual([event1]);
+  });
+
+  test('consumeEose', () => {
+    let callEose = 0;
+    const relay1 = new Relay('wss://host1', { watchDogInterval: 0 });
+    const relay2 = new Relay('wss://host2', { watchDogInterval: 0 });
+    const sut = new Subscription('my-sub', [relay1, relay2], {
+      filters: [{ kinds: [1] }],
+      onEvent: () => {},
+      onEose: () => callEose++
+    });
+
+    sut.consumeEose(relay1.url);
+    expect(callEose).toBe(0);
+    expect(sut.isAfterEose).toBe(false);
+
+    sut.consumeEose(relay2.url);
+    expect(callEose).toBe(1);
+    expect(sut.isAfterEose).toBe(true);
+
+    sut.consumeEose(relay2.url);
+    expect(callEose).toBe(1);
+  });
+
+  test('recoveryFilters', () => {
+    const relay1 = new Relay('wss://host1', { watchDogInterval: 0 });
+    const relay2 = new Relay('wss://host2', { watchDogInterval: 0 });
+    const sut = new Subscription('my-sub', [relay1], {
+      filters: [{ kinds: [1] }],
+      onEvent: () => {},
+    });
+
+    const forRelay1 = sut.recoveryFilters(relay1);
+    expect(forRelay1.length).toBe(1);
+    expect(forRelay1[0].kinds).toEqual([1]);
+    expect(forRelay1[0].since).toBeGreaterThan(1);
+
+    expect(sut.recoveryFilters(relay2)).toEqual([{ kinds: [1] }]);
+  });
+
+  test('recoveryFilters with recoveredHandler', () => {
+    const onRecovered = jest.fn((relay: Relay) => [{ '#r': [relay.url] }]);
+    const relay1 = new Relay('wss://host1', { watchDogInterval: 0 });
+    const relay2 = new Relay('wss://host2', { watchDogInterval: 0 });
+    const sut = new Subscription('my-sub', [relay1], {
+      filters: [{ kinds: [1] }],
+      onEvent: () => {},
+      onRecovered
+    });
+
+    expect(sut.recoveryFilters(relay1)).toEqual([{ '#r': ['wss://host1'] }]);
+    expect(sut.recoveryFilters(relay2)).toEqual([{ '#r': ['wss://host2'] }]);
+    expect(sut.recoveryFilters(relay2)).toEqual([{ '#r': ['wss://host2'] }]);
+
+    // @ts-ignore
+    expect(onRecovered.mock.calls).toEqual([
+      [relay1, false],
+      [relay2, true],
+      [relay2, false],
+    ])
+  });
+});
+
 test('CommandResult', () => {
   const relay1 = new Relay('wss://host1', { watchDogInterval: 0 });
   const relay2 = new Relay('wss://host2', { watchDogInterval: 0 });
@@ -335,20 +444,12 @@ describe('Mux', () => {
     sut.addRelay(relay2);
     sut.addRelay(relay3);
 
-    // @ts-ignore
-    relay1.ws.readyState = 1;
-    // @ts-ignore
-    relay1.ws.dispatch('open', null);
-
-    // @ts-ignore
-    relay2.ws.readyState = 1;
-    // @ts-ignore
-    relay2.ws.dispatch('open', null);
-
-    // @ts-ignore
-    relay3.ws.readyState = 1;
-    // @ts-ignore
-    relay3.ws.dispatch('open', null);
+    for (const relay of sut.allRelays) {
+      // @ts-ignore
+      relay.ws.readyState = 1;
+      // @ts-ignore
+      relay.ws.dispatch('open', null);
+    }
 
     let eoseSubIDs: string[] = [];
     let contents: string[] = [];
@@ -420,7 +521,7 @@ describe('Mux', () => {
     expect(relay.ws.sent).toEqual(['["REQ","__sub:1",{"kinds":[2]}]']);
   });
 
-  test('subscribe and auto recovery', async () => {
+  test('subscribe and no recovery', async () => {
     const relay = new Relay('wss://host', { watchDogInterval: 0 });
     const sut = new Mux();
 
@@ -429,6 +530,7 @@ describe('Mux', () => {
     sut.subscribe({
       filters: [{ kinds: [1] }],
       onEvent: (e: RelayMessageEvent<EventMessage>) => {},
+      onRecovered: () => [],
     });
 
     await new Promise(r => setTimeout(r, 10));
@@ -438,29 +540,7 @@ describe('Mux', () => {
     // @ts-ignore
     relay.ws.dispatch('open', null);
 
-    // @ts-ignore
-    expect(relay.ws.sent.length).toEqual(1);
-    // @ts-ignore
-    expect(relay.ws.sent[0]).toMatch(/\["REQ","__sub:1",\{"kinds":\[1\],"since":\d+\}\]/);
-  });
-
-  test('subscribe and auto recovery', async () => {
-    const relay = new Relay('wss://host', { watchDogInterval: 0 });
-    const sut = new Mux();
-
-    sut.addRelay(relay);
-
-    sut.subscribe({
-      filters: [{ kinds: [1], until: 10 }],
-      onEvent: (e: RelayMessageEvent<EventMessage>) => {},
-    });
-
-    await new Promise(r => setTimeout(r, 10));
-
-    // @ts-ignore
-    relay.ws.readyState = 1;
-    // @ts-ignore
-    relay.ws.dispatch('open', null);
+    await new Promise(r => setTimeout(r, 100));
 
     // @ts-ignore
     expect(relay.ws.sent).toEqual([]);

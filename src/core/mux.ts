@@ -22,7 +22,7 @@ export interface SubscriptionOptions {
   id?: string;
   eoseTimeout?: number;
   onEose?: (subID: string) => void;
-  onRecovered?: (relay: Relay) => Filter[];
+  onRecovered?: (relay: Relay, isNew: boolean) => Filter[];
 }
 
 export abstract class Plugin {
@@ -112,17 +112,19 @@ export class EventMatcher {
   }
 }
 
-class Subscription {
+export class Subscription {
   private id: string;
+  private sentFilterOnce: Set<string>;
   private eoseWaitList: Set<string>;
   private filters: Filter[];
   private eventMatchers: EventMatcher[];
   private eventHandler: (e: RelayMessageEvent<EventMessage>) => void;
   private eoseHandler: undefined | ((subID: string) => void);
-  private recoveredHandler: undefined | ((relay: Relay) => Filter[]);
+  private recoveredHandler: undefined | ((relay: Relay, isNew: boolean) => Filter[]);
 
   constructor(id: string, initialRelays: Relay[], subOptions: SubscriptionOptions) {
     this.id = id;
+    this.sentFilterOnce = new Set(initialRelays.map(r => r.url));
     this.eoseWaitList = new Set(initialRelays.map(r => r.url));
     this.filters = subOptions.filters
     this.eventMatchers = subOptions.filters.map(f => new EventMatcher(f));
@@ -164,17 +166,21 @@ class Subscription {
     }
   }
 
-  /**
-   * Provide filter for relay becomes(or comes back) healthy
-   */
   recoveryFilters(relay: Relay): Filter[] {
+    const isNew = !this.sentFilterOnce.has(relay.url);
+    this.sentFilterOnce.add(relay.url);
+    
     if (this.recoveredHandler) {
-      return this.recoveredHandler(relay);
+      return this.recoveredHandler(relay, isNew);
     }
 
-    return this.filters
-      .map(f => this.buildRecoveryFilter(f))
-      .filter((f): f is NonNullable<typeof f> => f !== null);
+    if (isNew) {
+      return this.filters
+    } else {
+      return this.filters
+        .map(f => this.buildRecoveryFilter(f))
+        .filter((f): f is NonNullable<typeof f> => f !== null);
+    }
   }
 
   private buildRecoveryFilter(filter: Filter): Filter | null {
