@@ -1,6 +1,6 @@
 {
   "name": "nostr-mux",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Multiplexed connection for Nostr relays",
   "type": "module",
   "main": "./dist/index.js",
