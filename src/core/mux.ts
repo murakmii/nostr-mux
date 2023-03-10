@@ -11,6 +11,7 @@ import {
 import { Event, verifyEvent } from "./event.js";
 
 export interface PublishOptions {
+  relays?: string[];
   timeout?: number;
   onResult?: (results: RelayMessageEvent<OkMessage>[]) => void;
 }
@@ -389,20 +390,26 @@ export class Mux {
   }
 
   /**
-   * `publish` method publishes event to ALL relays(regardless of healthy or not).
+   * `publish` method publishes event relays.
    * This method verifies event before publishing.
    * 
    * @param event Event will be published
    * @param options 
    */
   publish(event: Event, options: PublishOptions = {}) {
+    const targets = this.allRelays.filter(r => {
+      return r.isWritable && (!options.relays || options.relays.find(fr => fr === r.url));
+    });
+
+    if (targets.length === 0) {
+      throw new Error('No relays for publishing');
+    }
+
     verifyEvent(event)
       .then(result => {
         if (typeof result === 'string') {
           throw new Error(`failed to publish event: ${result}`);
         }
-
-        const targets = this.allRelays.filter(r => r.isWritable);
 
         for (const pid in this.plugins) {
           this.plugins[pid].capturePublishedEvent(event);

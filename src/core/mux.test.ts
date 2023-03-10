@@ -434,6 +434,48 @@ describe('Mux', () => {
     expect(sut.cmds).toEqual({});
   });
 
+  test('publish(specify relay)', async () => {
+    const relay1 = new Relay('wss://host-1', { watchDogInterval: 0 });
+    const relay2 = new Relay('wss://host-2', { watchDogInterval: 0 });
+    const sut = new Mux();
+
+    sut.addRelay(relay1);
+    sut.addRelay(relay2);
+
+    // @ts-ignore
+    relay1.ws.readyState = 1;
+    // @ts-ignore
+    relay1.ws.dispatch('open', null);
+
+    // @ts-ignore
+    relay2.ws.readyState = 1;
+    // @ts-ignore
+    relay2.ws.dispatch('open', null);
+
+    sut.publish(
+      {
+        id: '75a1b3c28b7082e0c74c43f2f1d917217c9fd8d73017688c8ac4c70bb2966b56',
+        pubkey: 'fc137c5bb32f96849dff141bdf94c9e9426eeae0ecc1d2e67aa69bf8d04b2f1e',
+        created_at: 1677297041,
+        kind: 1,
+        tags: [],
+        content: 'hello, jest',
+        sig: '3451d8cfb61324ca23ee2b093058e79ab8b271acce7a2456a560ee36a517e13f90ae92f44d69f14ce75b8414a9ceeb7e781054ca9414a50052e07bf19ea24cdf',
+      },
+      {
+        relays: ['wss://host-2']
+      }
+    );
+
+    await new Promise(r => setTimeout(r, 10));
+
+    // @ts-ignore
+    expect(relay1.ws.sent.length).toBe(0);
+
+    // @ts-ignore
+    expect(relay2.ws.sent.length).toBe(1);
+  });
+
   test('subscribe', async () => {
     const relay1 = new Relay('wss://host1', { watchDogInterval: 0 });
     const relay2 = new Relay('wss://host2', { watchDogInterval: 0 });
