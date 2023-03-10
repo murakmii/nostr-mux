@@ -161,7 +161,7 @@ export class Subscription {
     }
 
     this.eoseWaitList.delete(senderRelayURL);
-    if (this.eoseWaitList.size === 0 && this.eoseHandler) {
+    if (this.isAfterEose && this.eoseHandler) {
       this.eoseHandler(this.id);
     }
   }
@@ -284,11 +284,9 @@ export class Mux {
 
       // Start subscription that is already started on other relays.
       for (const subID in this.subs) {
-        if (this.subs[subID].isAfterEose) {
-          const recoveryFilters = this.subs[subID].recoveryFilters(e.relay);
-          if (recoveryFilters.length > 0) {
-            e.relay.request(subID, recoveryFilters);
-          }
+        const recoveryFilters = this.subs[subID].recoveryFilters(e.relay);
+        if (recoveryFilters.length > 0) {
+          e.relay.request(subID, recoveryFilters);
         }
       }
     }
