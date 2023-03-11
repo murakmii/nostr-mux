@@ -1,6 +1,7 @@
 import { Emitter, SimpleEmitter } from "./emitter.js";
 import { verifyEvent, Event } from "./event.js";
 import { Logger, LogLevel, buildSimpleLogger } from "./logger.js";
+import { normalizeWsURL } from "./utils.js";
 
 // TODO: support AUTH
 export type RelayMessage = EventMessage | NoticeMessage | EoseMessage | OkMessage;
@@ -173,7 +174,12 @@ export class Relay {
   private handleWSClose: () => void;
 
   constructor(url: string, options: RelayOptions = {}) {
-    this.url = url;
+    const normalized = normalizeWsURL(url);
+    if (!normalized) {
+      throw new Error(`invalid WebSocket URL: ${url}`);
+    }
+
+    this.url = normalized;
 
     this.read = (typeof options.read === 'boolean') ? options.read : true;
     this.write = (typeof options.write === 'boolean') ? options.write : true;

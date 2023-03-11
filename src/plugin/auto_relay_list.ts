@@ -1,5 +1,6 @@
 import { Event, Tag } from "../core/event.js";
 import { Mux, Plugin } from "../core/mux.js";
+import { normalizeWsURL } from "../core/utils.js";
 import { buildSimpleLogger, Logger, LogLevel } from "../core/logger.js";
 import { 
   RelayMessageEvent, 
@@ -41,13 +42,18 @@ export const parseEvent = (e: RelayListEvent): RelayListEntry[] | null => {
       continue;
     }
 
+    const url = normalizeWsURL(tag[1]);
+    if (!url) {
+      continue;
+    }
+
     switch (tag.length) {
       case 2:
-        entries.push({ url: tag[1], read: true, write: true });
+        entries.push({ url, read: true, write: true });
         break;
 
       case 3:
-        entries.push({ url: tag[1], read: tag[2] === 'read', write: tag[2] === 'write' });
+        entries.push({ url, read: tag[2] === 'read', write: tag[2] === 'write' });
         break;
 
       default:
@@ -155,7 +161,7 @@ export class AutoRelayList extends Plugin {
       },
       onEose: () => {
         beforeEose = false;
-        this.applyRelayList(event || this.fallbackRelayListEvent);
+        this.applyRelayList(event || this.fallbackRelayListEvent, !!!event);
       },
       eoseTimeout: this.eoseTimeout,
       onRecovered: (_: Relay): Filter[] => filters,
@@ -166,12 +172,12 @@ export class AutoRelayList extends Plugin {
     return {
       kind: relayListKind,
       tags: this.fallbackRelays.map(r => this.pubkey ? ['r', r] : ['r', r, 'read']),
-      created_at: Math.ceil(Date.now() / 1000),
+      created_at: 0,
     };
   }
 
-  private applyRelayList(event: RelayListEvent): void {
-    if (this.lastEvent && this.lastEvent.created_at > event.created_at) {
+  private applyRelayList(event: RelayListEvent, forceApply?: boolean): void {
+    if (!forceApply && this.lastEvent && this.lastEvent.created_at > event.created_at) {
       return;
     }
 
