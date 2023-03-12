@@ -337,7 +337,7 @@ describe('AutoProfileSubscriber', () => {
       parser: parseGenericProfile,
       collectPubkeyFromFilter: () => { return []; },
       tickInterval: 10,
-      timeout: 2000,
+      timeout: 500,
     });
 
     mux.installPlugin(sut);
@@ -348,7 +348,7 @@ describe('AutoProfileSubscriber', () => {
 
     sut.get('PUBKEY2'); // before run ticker, push to backlog
 
-    await new Promise(r => setTimeout(r, 1000)); // ticker is running
+    await new Promise(r => setTimeout(r, 100)); // ticker is running
 
     sut.get('PUBKEY3'); // push to backlog while ticker is running
 
@@ -370,17 +370,53 @@ describe('AutoProfileSubscriber', () => {
       }
     });
 
-    await new Promise(r => setTimeout(r, 5000));
+    relay.onEvent.emit({
+      relay,
+      received: {
+        type: 'EVENT',
+        subscriptionID: '__profile',
+        event: {
+          kind: 0,
+          content: '{"name":"nostr","display_name":"Nostr","about":"updated profile!","picture":"https://pic","nip05":"https://nip05"}',
+          id: 'ID', 
+          pubkey: 'PUBKEY', 
+          created_at: 123456790, // emit profile that is newer than previous
+          tags: [], 
+          sig: 'SIG',
+        }
+      }
+    });
+
+    relay.onEvent.emit({
+      relay,
+      received: {
+        type: 'EVENT',
+        subscriptionID: '__profile',
+        event: {
+          kind: 0,
+          content: '{"name":"nostr","display_name":"Nostr","about":"initial profile","picture":"https://pic","nip05":"https://nip05"}',
+          id: 'ID', 
+          pubkey: 'PUBKEY', 
+          created_at: 123456780, // emit profile that is oldest(SHOULD be ignored)
+          tags: [], 
+          sig: 'SIG',
+        }
+      }
+    });
+
+    relay.onEose.emit({ relay, received: { type: 'EOSE', subscriptionID: '__profile' } });
+
+    await new Promise(r => setTimeout(r, 1000));
 
     expect(profileForPUBKEY).toEqual({
       properties: {
         name: 'nostr',
         displayName: 'Nostr',
-        about: 'this is jest',
+        about: 'updated profile!',
         picture: 'https://pic',
         nip05: 'https://nip05',
       },
-      createdAt: 123456789,
+      createdAt: 123456790,
       relayURL: 'wss://host',
     });
 
@@ -390,11 +426,11 @@ describe('AutoProfileSubscriber', () => {
         properties: {
           name: 'nostr',
           displayName: 'Nostr',
-          about: 'this is jest',
+          about: 'updated profile!',
           picture: 'https://pic',
           nip05: 'https://nip05',
         },
-        createdAt: 123456789,
+        createdAt: 123456790,
         relayURL: 'wss://host',
       }
     });
@@ -407,4 +443,44 @@ describe('AutoProfileSubscriber', () => {
       '["CLOSE","__profile"]',
     ]);
   }, 10000);
+
+  test('do NOT subscribe by empty authors filter', async () => {
+    const relay = new Relay('wss://host', { watchDogInterval: 0 });
+    const mux = new Mux();
+
+    mux.addRelay(relay);
+
+    // @ts-ignore
+    relay.ws.readyState = 1;
+    // @ts-ignore
+    relay.ws.dispatch('open', null);
+
+    const sut = new AutoProfileSubscriber({
+      parser: parseGenericProfile,
+      collectPubkeyFromFilter: () => { return []; },
+      tickInterval: 10,
+      timeout: 500,
+    });
+
+    mux.installPlugin(sut);
+
+    // run ticker after 10ms
+    let profileForPUBKEY: Profile<GenericProfile> | undefined;
+    sut.get('PUBKEY').then(result => profileForPUBKEY = result);  
+
+    await new Promise(r => setTimeout(r, 100)); // ticker is running
+
+    sut.get('PUBKEY'); // get same pubkey while ticker is running
+
+    relay.onEose.emit({ relay, received: { type: 'EOSE', subscriptionID: '__profile' } });
+
+    await new Promise(r => setTimeout(r, 2000));
+
+    // @ts-ignore
+    expect(relay.ws.sent).toEqual([
+      '["REQ","__profile",{"kinds":[0],"authors":["PUBKEY"]}]',
+      '["CLOSE","__profile"]',
+      // SHOULD NOT send empty 'authors'
+    ]);
+  });
 });

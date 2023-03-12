@@ -201,6 +201,7 @@ export class AutoProfileSubscriber<T> extends Plugin {
     this.collectPubkeyFromEvent = options.collectPubkeyFromEvent;
 
     this.ticker = (): void => {
+      const filter: Filter = { kinds: [0], authors: [] };
       const results: { [K: string]: ProfileCacheEntry<T> } = {};
       for (const pubkey of this.pubkeyBacklog) {
         if (this.cache.has(pubkey)) {
@@ -209,32 +210,29 @@ export class AutoProfileSubscriber<T> extends Plugin {
         }
 
         results[pubkey] = { foundProfile: undefined };
+        filter.authors?.push(pubkey);
       }
 
       this.pubkeyBacklog.clear(); // To accept pubkey while ticker is running.
 
+      if (filter.authors?.length === 0) {
+        this.finishTicker();
+        return;
+      }
+
       this.mux?.subscribe({
         id: autoProfileSubscriberSubID,
-        filters: [
-          {
-            kinds: [0],
-            authors: Object.keys(results)
-          }
-        ],
+        filters: [filter],
         onEvent: e => {
           const pubkey = e.received.event.pubkey;
-          const loaded = parseProfile(e, this.parser);
-          if (!loaded || !(pubkey in results)) {
+          const received = parseProfile(e, this.parser);
+          if (!received) {
             return;
           }
 
-          const other = results[pubkey].foundProfile;
-          if (other) {
-            if (other.createdAt < loaded.createdAt) {
-              results[pubkey].foundProfile = loaded;
-            }
-          } else {
-            results[pubkey].foundProfile = loaded;
+          const exist = results[pubkey].foundProfile;
+          if (!exist || exist.createdAt < received.createdAt) {
+            results[pubkey].foundProfile = received;
           }
         },
         onEose: () => {
@@ -245,12 +243,7 @@ export class AutoProfileSubscriber<T> extends Plugin {
             this.resolveWaitingPromises(pubkey, results[pubkey].foundProfile);
           }
 
-          // If pubkey was pushed to backlog while ticker is running, we run next ticker immediately.
-          if (this.pubkeyBacklog.size > 0) {
-            this.activeTicker = setTimeout(this.ticker, 0);
-          } else {
-            this.activeTicker = undefined;
-          }
+          this.finishTicker();
         },
         eoseTimeout: this.timeout,
       });
@@ -357,5 +350,10 @@ export class AutoProfileSubscriber<T> extends Plugin {
     }
 
     delete this.waitingPromises[pubkey];
+  }
+
+  private finishTicker() {
+    // If pubkey was pushed to backlog while ticker is running, we run next ticker immediately.
+    this.activeTicker = this.pubkeyBacklog.size > 0 ? setTimeout(this.ticker, 0) : undefined;
   }
 }
