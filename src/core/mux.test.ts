@@ -282,21 +282,33 @@ describe('Subscription', () => {
 test('CommandResult', () => {
   const relay1 = new Relay('wss://host1', { watchDogInterval: 0 });
   const relay2 = new Relay('wss://host2', { watchDogInterval: 0 });
-  let result: RelayMessageEvent<OkMessage>[] | null = null;
 
-  const sut = new CommandResult([relay1, relay2], r => result = r);
+  let results: RelayMessageEvent<OkMessage>[] = [];
+  let complete: RelayMessageEvent<OkMessage>[] | null = null;
+
+  const sut = new CommandResult([relay1, relay2], {
+    onResult: (r) => results.push(r),
+    onComplete: (r) => complete = r,
+  });
 
   expect(sut.hasCompleted).toBe(false);
 
   sut.consumeResult({ relay: relay1, received: { type: 'OK', eventID: 'E1', accepted: true, message: 'M1' } });
 
   expect(sut.hasCompleted).toBe(false);
-  expect(result).toBe(null);
+  expect(results).toEqual([{ relay: relay1, received: { type: 'OK', eventID: 'E1', accepted: true, message: 'M1' } }]);
+  expect(complete).toBe(null);
 
   sut.consumeResult({ relay: relay2, received: { type: 'OK', eventID: 'E2', accepted: false, message: 'M2' } });
 
   expect(sut.hasCompleted).toBe(true);
-  expect(result).toEqual([
+
+  expect(results).toEqual([
+    { relay: relay1, received: { type: 'OK', eventID: 'E1', accepted: true, message: 'M1' } },
+    { relay: relay2, received: { type: 'OK', eventID: 'E2', accepted: false, message: 'M2' } },
+  ]);
+
+  expect(complete).toEqual([
     { relay: relay1, received: { type: 'OK', eventID: 'E1', accepted: true, message: 'M1' } },
     { relay: relay2, received: { type: 'OK', eventID: 'E2', accepted: false, message: 'M2' } },
   ]);
@@ -383,23 +395,33 @@ describe('Mux', () => {
     const relay1 = new Relay('wss://host-1', { watchDogInterval: 0 });
     const relay2 = new Relay('wss://host-2', { watchDogInterval: 0 });
     const relay3 = new Relay('wss://host-3', { write: false, watchDogInterval: 0 });
+    const relay4 = new Relay('wss://host-4', { watchDogInterval: 0 });
     const sut = new Mux();
 
     sut.addRelay(relay1);
     sut.addRelay(relay2);
     sut.addRelay(relay3);
+    sut.addRelay(relay4);
 
     // @ts-ignore
     relay1.ws.readyState = 1;
     // @ts-ignore
     relay1.ws.dispatch('open', null);
 
+    // relay2 is NOT connected
+
     // @ts-ignore
     relay3.ws.readyState = 1;
     // @ts-ignore
     relay3.ws.dispatch('open', null);
 
-    let results: RelayMessageEvent<OkMessage>[] | null = null;
+    // @ts-ignore
+    relay4.ws.readyState = 1;
+    // @ts-ignore
+    relay4.ws.dispatch('open', null);
+
+    let results: RelayMessageEvent<OkMessage>[] = [];
+    let completeResults: RelayMessageEvent<OkMessage>[] | null = null;
     sut.publish(
       {
         id: '75a1b3c28b7082e0c74c43f2f1d917217c9fd8d73017688c8ac4c70bb2966b56',
@@ -411,11 +433,12 @@ describe('Mux', () => {
         sig: '3451d8cfb61324ca23ee2b093058e79ab8b271acce7a2456a560ee36a517e13f90ae92f44d69f14ce75b8414a9ceeb7e781054ca9414a50052e07bf19ea24cdf',
       },
       {
-        onResult: (r: RelayMessageEvent<OkMessage>[]) => results = r,
+        onResult: (e) => results.push(e),
+        onComplete: (r) => completeResults = r,
       }
     );
 
-    await new Promise(r => setTimeout(r, 10));
+    await new Promise(r => setTimeout(r, 100));
 
     // @ts-ignore
     expect(sut.cmds['75a1b3c28b7082e0c74c43f2f1d917217c9fd8d73017688c8ac4c70bb2966b56']).not.toBe(undefined);
@@ -423,11 +446,21 @@ describe('Mux', () => {
     // @ts-ignore
     relay1.ws.dispatch('message', { data: '["OK","75a1b3c28b7082e0c74c43f2f1d917217c9fd8d73017688c8ac4c70bb2966b56",true,"good"]' });
 
-    await new Promise(r => setTimeout(r, 10));
+    // @ts-ignore
+    relay4.ws.dispatch('message', { data: '["OK","75a1b3c28b7082e0c74c43f2f1d917217c9fd8d73017688c8ac4c70bb2966b56",false,"error: NOT good"]' });
+
+    await new Promise(r => setTimeout(r, 100));
 
     expect(results).toEqual([
-      { relay: relay1, received: { type: 'OK', eventID: '75a1b3c28b7082e0c74c43f2f1d917217c9fd8d73017688c8ac4c70bb2966b56', accepted: true, message: 'good' } },
       { relay: relay2, received: { type: 'OK', eventID: '75a1b3c28b7082e0c74c43f2f1d917217c9fd8d73017688c8ac4c70bb2966b56', accepted: false, message: 'error: client timeout' } },
+      { relay: relay1, received: { type: 'OK', eventID: '75a1b3c28b7082e0c74c43f2f1d917217c9fd8d73017688c8ac4c70bb2966b56', accepted: true, message: 'good' } },
+      { relay: relay4, received: { type: 'OK', eventID: '75a1b3c28b7082e0c74c43f2f1d917217c9fd8d73017688c8ac4c70bb2966b56', accepted: false, message: 'error: NOT good' } },
+    ]);
+
+    expect(completeResults).toEqual([
+      { relay: relay2, received: { type: 'OK', eventID: '75a1b3c28b7082e0c74c43f2f1d917217c9fd8d73017688c8ac4c70bb2966b56', accepted: false, message: 'error: client timeout' } },
+      { relay: relay1, received: { type: 'OK', eventID: '75a1b3c28b7082e0c74c43f2f1d917217c9fd8d73017688c8ac4c70bb2966b56', accepted: true, message: 'good' } },
+      { relay: relay4, received: { type: 'OK', eventID: '75a1b3c28b7082e0c74c43f2f1d917217c9fd8d73017688c8ac4c70bb2966b56', accepted: false, message: 'error: NOT good' } },
     ]);
     
     // @ts-ignore

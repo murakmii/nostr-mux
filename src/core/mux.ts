@@ -13,7 +13,8 @@ import { Event, verifyEvent } from "./event.js";
 export interface PublishOptions {
   relays?: string[];
   timeout?: number;
-  onResult?: (results: RelayMessageEvent<OkMessage>[]) => void;
+  onResult?: (result: RelayMessageEvent<OkMessage>) => void;
+  onComplete?: (results: RelayMessageEvent<OkMessage>[]) => void;
 }
 
 export interface SubscriptionOptions {
@@ -203,12 +204,14 @@ export class Subscription {
 export class CommandResult {
   private waitList: Set<string>;
   private results: RelayMessageEvent<OkMessage>[];
-  private onResult?: (results: RelayMessageEvent<OkMessage>[]) => void;
+  private onResult?: (result: RelayMessageEvent<OkMessage>) => void;
+  private onComplete?: (results: RelayMessageEvent<OkMessage>[]) => void;
 
-  constructor(waitList: Relay[], onResult?: ((results: RelayMessageEvent<OkMessage>[]) => void) | undefined) {
+  constructor(waitList: Relay[], options: PublishOptions) {
     this.waitList = new Set(waitList.map(r => r.url));
     this.results = [];
-    this.onResult = onResult;
+    this.onResult = options.onResult;
+    this.onComplete = options.onComplete;
   }
 
   get hasCompleted(): boolean {
@@ -222,9 +225,11 @@ export class CommandResult {
 
     this.waitList.delete(e.relay.url);
     this.results.push(e);
+
+    this.onResult?.(e);
     
-    if (this.hasCompleted && this.onResult) {
-      this.onResult(this.results);
+    if (this.hasCompleted && this.onComplete) {
+      this.onComplete(this.results);
     }
   }
 }
@@ -415,7 +420,7 @@ export class Mux {
           this.plugins[pid].capturePublishedEvent(event);
         }
 
-        this.cmds[event.id] = new CommandResult(targets, options.onResult);
+        this.cmds[event.id] = new CommandResult(targets, options);
         for (const relay of targets) {
           relay.publish(event, options.timeout || 5000)
         }
