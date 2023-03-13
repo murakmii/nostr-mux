@@ -55,3 +55,9 @@ export {
   AutoProfileSubscriberOptions,
   AutoProfileSubscriber,
 } from './plugin/auto_profile_subscriber.js';
+
+import { decodeBech32ID, encodeBech32ID } from './core/utils.js';
+export const utils = {
+  decodeBech32ID,
+  encodeBech32ID,
+} as const;
