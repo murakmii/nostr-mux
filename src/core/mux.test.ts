@@ -393,7 +393,7 @@ describe('Subscription', () => {
     });
 
     sut.consumeEose(relay.url);
-    
+
     expect(callEvent).toBe(0);
     expect(sut.isAfterEose).toBe(true);
   });
@@ -784,6 +784,29 @@ describe('Mux', () => {
 
     // @ts-ignore
     expect(relay.ws.sent).toEqual(['["REQ","__sub:1",{"kinds":[2]}]']);
+  });
+
+  test('subscribe and recovery(for NOT readable relay)', async () => {
+    const relay = new Relay('wss://host', { watchDogInterval: 0, read: false });
+    const sut = new Mux();
+
+    sut.addRelay(relay);
+
+    sut.subscribe({
+      filters: [{ kinds: [1] }],
+      onEvent: (events: RelayMessageEvent<EventMessage>[]) => {},
+      onRecovered: (relay: Relay): Filter[] => [{ kinds: [2] }]
+    });
+
+    await new Promise(r => setTimeout(r, 10));
+
+    // @ts-ignore
+    relay.ws.readyState = 1;
+    // @ts-ignore
+    relay.ws.dispatch('open', null);
+
+    // @ts-ignore
+    expect(relay.ws.sent).toEqual([]);
   });
 
   test('subscribe and no recovery', async () => {

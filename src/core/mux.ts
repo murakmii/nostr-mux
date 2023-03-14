@@ -343,6 +343,10 @@ export class Mux {
         watcher();
       }
 
+      if (!e.relay.isReadable) {
+        return;
+      }
+
       // Start subscription that is already started on other relays.
       for (const subID in this.subs) {
         const recoveryFilters = this.subs[subID].recoveryFilters(e.relay);
