@@ -223,16 +223,18 @@ export class AutoProfileSubscriber<T> extends Plugin {
       this.mux?.subscribe({
         id: autoProfileSubscriberSubID,
         filters: [filter],
-        onEvent: e => {
-          const pubkey = e.received.event.pubkey;
-          const received = parseProfile(e, this.parser);
-          if (!received) {
-            return;
-          }
+        onEvent: events => {
+          for (const e of events) {
+            const pubkey = e.received.event.pubkey;
+            const received = parseProfile(e, this.parser);
+            if (!received) {
+              return;
+            }
 
-          const exist = results[pubkey].foundProfile;
-          if (!exist || exist.createdAt < received.createdAt) {
-            results[pubkey].foundProfile = received;
+            const exist = results[pubkey].foundProfile;
+            if (!exist || exist.createdAt < received.createdAt) {
+              results[pubkey].foundProfile = received;
+            }
           }
         },
         onEose: () => {

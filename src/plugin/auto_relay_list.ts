@@ -146,17 +146,19 @@ export class AutoRelayList extends Plugin {
     this.mux?.subscribe({
       id: subID,
       filters,
-      onEvent: (e: RelayMessageEvent<EventMessage>) => {
-        if (e.received.event.pubkey !== pubkey) {
-          return;
-        }
-
-        if (beforeEose) {
-          if (!event || event.created_at > e.received.event.created_at) {
-            event = e.received.event;
+      onEvent: (events: RelayMessageEvent<EventMessage>[]) => {
+        for (const e of events) {
+          if (e.received.event.pubkey !== pubkey) {
+            return;
           }
-        } else {
-          this.applyRelayList(e.received.event);
+  
+          if (beforeEose) {
+            if (!event || event.created_at > e.received.event.created_at) {
+              event = e.received.event;
+            }
+          } else {
+            this.applyRelayList(e.received.event);
+          }
         }
       },
       onEose: () => {

@@ -17,11 +17,17 @@ export interface PublishOptions {
   onComplete?: (results: RelayMessageEvent<OkMessage>[]) => void;
 }
 
+export interface BufferOptions {
+  flushInterval: number;
+  maxEventCount?: number;
+}
+
 export interface SubscriptionOptions {
   filters: [Filter, ...Filter[]];
-  onEvent: (e: RelayMessageEvent<EventMessage>) => void;
+  onEvent: (events: [RelayMessageEvent<EventMessage>, ...RelayMessageEvent<EventMessage>[]]) => void;
 
   id?: string;
+  enableBuffer?: BufferOptions;
   eoseTimeout?: number;
   onEose?: (subID: string) => void;
   onRecovered?: (relay: Relay, isNew: boolean) => Filter[];
@@ -114,13 +120,22 @@ export class EventMatcher {
   }
 }
 
+const atLeastOneEvent = (events: RelayMessageEvent<EventMessage>[]): events is [RelayMessageEvent<EventMessage>, ...RelayMessageEvent<EventMessage>[]] => {
+  return events.length > 0;
+}
+
 export class Subscription {
   private id: string;
   private sentFilterOnce: Set<string>;
   private eoseWaitList: Set<string>;
   private filters: Filter[];
   private eventMatchers: EventMatcher[];
-  private eventHandler: (e: RelayMessageEvent<EventMessage>) => void;
+
+  private bufferOpts: BufferOptions;
+  private buffered: RelayMessageEvent<EventMessage>[];
+  private bufferFlusher?: NodeJS.Timeout;
+
+  private eventHandler: (events: [RelayMessageEvent<EventMessage>, ...RelayMessageEvent<EventMessage>[]]) => void;
   private eoseHandler: undefined | ((subID: string) => void);
   private recoveredHandler: undefined | ((relay: Relay, isNew: boolean) => Filter[]);
 
@@ -128,8 +143,12 @@ export class Subscription {
     this.id = id;
     this.sentFilterOnce = new Set(initialRelays.map(r => r.url));
     this.eoseWaitList = new Set(initialRelays.map(r => r.url));
-    this.filters = subOptions.filters
+    this.filters = subOptions.filters;
     this.eventMatchers = subOptions.filters.map(f => new EventMatcher(f));
+
+    this.bufferOpts = subOptions.enableBuffer || { flushInterval: 0 };
+    this.buffered = [];
+    
     this.eventHandler = subOptions.onEvent;
     this.eoseHandler = subOptions.onEose;
     this.recoveredHandler = subOptions.onRecovered;
@@ -151,7 +170,7 @@ export class Subscription {
     // So, we SHOULD always check whether event matches current filter.
     for (const matcher of this.eventMatchers) {
       if (matcher.test(e.received.event)) {
-        this.eventHandler(e);
+        this.handleEvent(e);
         break;
       }
     }
@@ -163,8 +182,9 @@ export class Subscription {
     }
 
     this.eoseWaitList.delete(senderRelayURL);
-    if (this.isAfterEose && this.eoseHandler) {
-      this.eoseHandler(this.id);
+    if (this.isAfterEose) {
+      this.flushBuffered(); // We SHOULD maintain EVENT and EOSE ordering.
+      this.eoseHandler?.(this.id);
     }
   }
 
@@ -185,6 +205,10 @@ export class Subscription {
     }
   }
 
+  unSubscribe() {
+    this.flushBuffered();
+  }
+
   private buildRecoveryFilter(filter: Filter): Filter | null {
     const now = Math.floor(new Date().getTime() / 1000);
     const newFilter: Filter = { ...filter };
@@ -198,6 +222,37 @@ export class Subscription {
     } 
 
     return newFilter;
+  }
+
+  private handleEvent(e: RelayMessageEvent<EventMessage>) {
+    if (this.bufferOpts.flushInterval === 0) {
+      this.eventHandler([e]);
+      return;
+    }
+
+    this.buffered.push(e);
+    if (typeof this.bufferOpts.maxEventCount === 'number' && this.buffered.length >= this.bufferOpts.maxEventCount) {
+      this.flushBuffered();
+      return;
+    }
+
+    if (!this.bufferFlusher) {
+      this.bufferFlusher = setTimeout(() => this.flushBuffered(), this.bufferOpts.flushInterval);
+    }
+  }
+
+  private flushBuffered() {
+    if (this.bufferFlusher) {
+      clearTimeout(this.bufferFlusher);
+      this.bufferFlusher = undefined;
+    }
+
+    if (!atLeastOneEvent(this.buffered)) {
+      return;
+    }    
+
+    this.eventHandler(this.buffered);
+    this.buffered = [];
   }
 }
 
@@ -465,6 +520,10 @@ export class Mux {
     for (const relay of this.allRelays) {
       relay.close(subID);
     }
-    delete this.subs[subID];
+
+    if (this.subs[subID]) {
+      this.subs[subID].unSubscribe();
+      delete this.subs[subID];
+    }
   }
 }

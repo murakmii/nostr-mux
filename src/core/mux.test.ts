@@ -189,7 +189,7 @@ describe('Subscription', () => {
     const relay = new Relay('wss://host', { watchDogInterval: 0 });
     const sut = new Subscription('my-sub', [], {
       filters: [{ kinds: [0] }, { kinds: [1] }],
-      onEvent: m => events.push(m.received.event),
+      onEvent: recv => recv.forEach(r => events.push(r.received.event)),
     });
 
     const event1 = {
@@ -215,29 +215,219 @@ describe('Subscription', () => {
     sut.consumeEvent({ relay, received: { type: 'EVENT', subscriptionID: 'my-sub', event: event1 }});
     sut.consumeEvent({ relay, received: { type: 'EVENT', subscriptionID: 'my-sub', event: event2 }});
 
+    // event2 was filtered because it has not kind that is 0 or 1
     expect(events).toEqual([event1]);
+  });
+
+  test('consumeEvent with buffering(flush interval only)', async () => {
+    const called: RelayMessageEvent<EventMessage>[][] = [];
+    const relay = new Relay('wss://host', { watchDogInterval: 0 });
+    const sut = new Subscription('my-sub', [], {
+      filters: [{ kinds: [1] }, { kinds: [42] }],
+      enableBuffer: {
+        flushInterval: 200,
+      },
+      onEvent: events => called.push(events),
+    });
+
+    const event1 = {
+      id: 'EID1',
+      kind: 1,
+      pubkey: 'MYPUB',
+      content: 'hello',
+      tags: [],
+      created_at: 123456789,
+      sig: 'SIG'
+    };
+
+    const event2 = {
+      id: 'EID2',
+      kind: 42,
+      pubkey: 'MYPUB',
+      content: 'hello',
+      tags: [],
+      created_at: 123456789,
+      sig: 'SIG'
+    };
+
+    sut.consumeEvent({ relay, received: { type: 'EVENT', subscriptionID: 'my-sub', event: event1 }});
+    sut.consumeEvent({ relay, received: { type: 'EVENT', subscriptionID: 'my-sub', event: event2 }});
+
+    await new Promise(r => setTimeout(r, 100));
+
+    // @ts-ignore
+    expect(sut.buffered.length).toBe(2);
+    expect(called).toEqual([]); // flushInterval is 200ms. So, onEvent is NOT called at this time.
+
+    await new Promise(r => setTimeout(r, 200));
+
+    expect(called).toEqual([
+      [
+        { relay, received: { type: 'EVENT', subscriptionID: 'my-sub', event: event1 }},
+        { relay, received: { type: 'EVENT', subscriptionID: 'my-sub', event: event2 }},
+      ]
+    ]);
+
+    const event3 = {
+      id: 'EID2',
+      kind: 42,
+      pubkey: 'MYPUB',
+      content: 'this is event3!',
+      tags: [],
+      created_at: 123456789,
+      sig: 'SIG'
+    };
+
+    sut.consumeEvent({ relay, received: { type: 'EVENT', subscriptionID: 'my-sub', event: event3 }});
+
+    await new Promise(r => setTimeout(r, 300));
+
+    expect(called).toEqual([
+      [
+        { relay, received: { type: 'EVENT', subscriptionID: 'my-sub', event: event1 }},
+        { relay, received: { type: 'EVENT', subscriptionID: 'my-sub', event: event2 }},
+      ],
+      [
+        { relay, received: { type: 'EVENT', subscriptionID: 'my-sub', event: event3 }}
+      ]
+    ]);
+  });
+
+  test('consumeEvent with buffering(with max event count)', () => {
+    const called: RelayMessageEvent<EventMessage>[][] = [];
+    const relay = new Relay('wss://host', { watchDogInterval: 0 });
+    const sut = new Subscription('my-sub', [], {
+      filters: [{ kinds: [1] }, { kinds: [42] }],
+      enableBuffer: {
+        flushInterval: 200,
+        maxEventCount: 2,
+      },
+      onEvent: events => called.push(events),
+    });
+
+    const event1 = {
+      id: 'EID1',
+      kind: 1,
+      pubkey: 'MYPUB',
+      content: 'hello',
+      tags: [],
+      created_at: 123456789,
+      sig: 'SIG'
+    };
+
+    const event2 = {
+      id: 'EID2',
+      kind: 42,
+      pubkey: 'MYPUB',
+      content: 'hello',
+      tags: [],
+      created_at: 123456789,
+      sig: 'SIG'
+    };
+
+    sut.consumeEvent({ relay, received: { type: 'EVENT', subscriptionID: 'my-sub', event: event1 }}); // run flusher
+    sut.consumeEvent({ relay, received: { type: 'EVENT', subscriptionID: 'my-sub', event: event2 }}); // reach maxEventCount
+
+    expect(called).toEqual([
+      [
+        { relay, received: { type: 'EVENT', subscriptionID: 'my-sub', event: event1 }},
+        { relay, received: { type: 'EVENT', subscriptionID: 'my-sub', event: event2 }},
+      ]
+    ]);
   });
 
   test('consumeEose', () => {
     let callEose = 0;
+    let callEvent = 0;
     const relay1 = new Relay('wss://host1', { watchDogInterval: 0 });
     const relay2 = new Relay('wss://host2', { watchDogInterval: 0 });
     const sut = new Subscription('my-sub', [relay1, relay2], {
       filters: [{ kinds: [1] }],
-      onEvent: () => {},
+      onEvent: () => callEvent++,
+      enableBuffer: {
+        flushInterval: 200
+      },
       onEose: () => callEose++
+    });
+
+    sut.consumeEvent({ 
+      relay: relay1, 
+      received: { 
+        type: 'EVENT', 
+        subscriptionID: 'my-sub', 
+        event: {
+          id: 'EID1',
+          kind: 1,
+          pubkey: 'MYPUB',
+          content: 'hello',
+          tags: [],
+          created_at: 123456789,
+          sig: 'SIG'
+        } 
+      }
     });
 
     sut.consumeEose(relay1.url);
     expect(callEose).toBe(0);
+    expect(callEvent).toBe(0);
     expect(sut.isAfterEose).toBe(false);
 
     sut.consumeEose(relay2.url);
     expect(callEose).toBe(1);
+    expect(callEvent).toBe(1);
     expect(sut.isAfterEose).toBe(true);
 
     sut.consumeEose(relay2.url);
     expect(callEose).toBe(1);
+  });
+
+  test('consumeEose(with no buffered events)', () => {
+    let callEvent = 0;
+    const relay = new Relay('wss://host1', { watchDogInterval: 0 });
+    const sut = new Subscription('my-sub', [relay], {
+      filters: [{ kinds: [1] }],
+      onEvent: () => callEvent++,
+      enableBuffer: {
+        flushInterval: 200
+      },
+    });
+
+    sut.consumeEose(relay.url);
+    
+    expect(callEvent).toBe(0);
+    expect(sut.isAfterEose).toBe(true);
+  });
+
+  test('unSubscribe', () => {
+    const called: RelayMessageEvent<EventMessage>[][] = [];
+    const relay = new Relay('wss://host', { watchDogInterval: 0 });
+    const sut = new Subscription('my-sub', [], {
+      filters: [{ kinds: [1] }, { kinds: [42] }],
+      enableBuffer: {
+        flushInterval: 200,
+      },
+      onEvent: events => called.push(events),
+    });
+
+    const event1 = {
+      id: 'EID1',
+      kind: 1,
+      pubkey: 'MYPUB',
+      content: 'hello',
+      tags: [],
+      created_at: 123456789,
+      sig: 'SIG'
+    };
+
+    sut.consumeEvent({ relay, received: { type: 'EVENT', subscriptionID: 'my-sub', event: event1 }});
+
+    sut.unSubscribe();
+
+    expect(called).toEqual([
+      [
+        { relay, received: { type: 'EVENT', subscriptionID: 'my-sub', event: event1 }},
+      ]
+    ]);
   });
 
   test('recoveryFilters', () => {
@@ -531,7 +721,7 @@ describe('Mux', () => {
 
     const subID = sut.subscribe({
       filters: [{ kinds: [1] }],
-      onEvent: (e: RelayMessageEvent<EventMessage>) => contents.push(e.received.event.content),
+      onEvent: (events: RelayMessageEvent<EventMessage>[]) => events.forEach(e => contents.push(e.received.event.content)),
       onEose: (eoseSubID: string) => eoseSubIDs.push(eoseSubID),
     });
 
@@ -581,7 +771,7 @@ describe('Mux', () => {
 
     sut.subscribe({
       filters: [{ kinds: [1] }],
-      onEvent: (e: RelayMessageEvent<EventMessage>) => {},
+      onEvent: (events: RelayMessageEvent<EventMessage>[]) => {},
       onRecovered: (relay: Relay): Filter[] => [{ kinds: [2] }]
     });
 
@@ -604,7 +794,7 @@ describe('Mux', () => {
 
     sut.subscribe({
       filters: [{ kinds: [1] }],
-      onEvent: (e: RelayMessageEvent<EventMessage>) => {},
+      onEvent: (events: RelayMessageEvent<EventMessage>[]) => {},
       onRecovered: () => [],
     });
 

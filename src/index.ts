@@ -36,6 +36,7 @@ export {
 export {
   SubscriptionOptions,
   PublishOptions,
+  BufferOptions,
   Plugin,
   Mux,
 } from './core/mux.js';
