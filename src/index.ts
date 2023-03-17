@@ -58,6 +58,14 @@ export {
 } from './plugin/auto_profile_subscriber.js';
 
 export {
+  ContactListEntry,
+  PersonalizerOptions as PersonalizeOptions,
+  ContactListOptions,
+  RelayListOptions,
+  Personalizer
+} from './plugin/personalizer.js';
+
+export {
   Bech32IDPrefix,
   Bech32ID
 } from './core/utils.js';

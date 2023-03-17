@@ -3,7 +3,8 @@ export type EmitterCallback<T> = (arg: T) => void;
 export interface Emitter<T> {
   listen(listener: EmitterCallback<T>): void;
   stop(listener: EmitterCallback<T>): void;
-  emit(arg: T): void
+  emit(arg: T): void;
+  reset(): void;
 }
 
 export class SimpleEmitter<T> implements Emitter<T> {
@@ -25,5 +26,9 @@ export class SimpleEmitter<T> implements Emitter<T> {
     for (const listener of this.listeners) {
       listener(arg);
     }
+  }
+
+  reset() {
+    this.listeners = [];
   }
 }
