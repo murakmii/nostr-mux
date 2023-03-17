@@ -1,12 +1,12 @@
-import { Tag } from '../core/event';
+import { Tag, Event } from '../core/event';
 import { buildSimpleLogger } from '../core/logger';
 import { Mux } from '../core/mux';
 import { Relay } from '../core/relay';
 import { 
   parseRelayListEvent, 
   parseContactListEvent,
-  ContactListSupport,
-  RelayListSupport,
+  ContactListHolder,
+  RelayListHolder,
   Personalizer,
   ContactListEntry,
 } from './personalizer';
@@ -72,18 +72,18 @@ test.each([
   expect(parseContactListEvent(event)).toEqual(expected);
 });
 
-describe('ContactListSupport', () => {
+describe('ContactListHolder', () => {
   test('targetKind', () => {
-    expect(new ContactListSupport('P1', buildSimpleLogger(undefined)).targetKind).toEqual(3);
+    expect(new ContactListHolder('P1', buildSimpleLogger(undefined)).targetKind).toEqual(3);
   });
 
   test('initialFilter', () => {
-    expect(new ContactListSupport('P1', buildSimpleLogger(undefined)).initialFilter)
+    expect(new ContactListHolder('P1', buildSimpleLogger(undefined)).initialFilter)
       .toEqual([{ kinds: [3], authors: ['P1'] }]);
   });
 
   test('recoveryFilter', () => {
-    const sut = new ContactListSupport('P1', buildSimpleLogger(undefined));
+    const sut = new ContactListHolder('P1', buildSimpleLogger(undefined));
 
     expect(sut.recoveryFilter).toEqual([{ kinds: [3], authors: ['P1'] }]);
 
@@ -101,7 +101,7 @@ describe('ContactListSupport', () => {
   });
 
   test('update', () => {
-    const sut = new ContactListSupport('P1', buildSimpleLogger(undefined));
+    const sut = new ContactListHolder('P1', buildSimpleLogger(undefined));
 
     let updated = 0;
     sut.onUpdated.listen(() => updated++);
@@ -174,18 +174,18 @@ describe('ContactListSupport', () => {
   });
 });
 
-describe('RelayListSupport', () => {
+describe('RelayListHolder', () => {
   test('targetKind', () => {
-    expect(new RelayListSupport('P1', buildSimpleLogger(undefined), new Mux(), {}).targetKind).toEqual(10002);
+    expect(new RelayListHolder('P1', buildSimpleLogger(undefined), new Mux(), {}).targetKind).toEqual(10002);
   });
 
   test('initialFilter', () => {
-    expect(new RelayListSupport('P1', buildSimpleLogger(undefined), new Mux(), {}).recoveryFilter)
+    expect(new RelayListHolder('P1', buildSimpleLogger(undefined), new Mux(), {}).recoveryFilter)
       .toEqual([{ kinds: [10002], authors: ['P1'] }]);
   });
 
   test('recoveryFilter', () => {
-    const sut = new RelayListSupport('P1', buildSimpleLogger(undefined), new Mux(), { watchDogInterval: 0 });
+    const sut = new RelayListHolder('P1', buildSimpleLogger(undefined), new Mux(), { watchDogInterval: 0 });
 
     expect(sut.recoveryFilter).toEqual([{ kinds: [10002], authors: ['P1'] }]);
 
@@ -212,7 +212,7 @@ describe('RelayListSupport', () => {
     mux.addRelay(relay2);
     mux.addRelay(relay3);
 
-    const sut = new RelayListSupport('P1', buildSimpleLogger(undefined), mux, { watchDogInterval: 0 });
+    const sut = new RelayListHolder('P1', buildSimpleLogger(undefined), mux, { watchDogInterval: 0 });
 
     sut.update({
       id: 'ID2',
@@ -251,7 +251,7 @@ describe('RelayListSupport', () => {
 });
 
 describe('Personalizer', () => {
-  test('install', async () => {
+  test('install and uninstall', async () => {
     const relay = new Relay('wss://relay', { watchDogInterval: 0 });
 
     const mux = new Mux();
@@ -266,16 +266,21 @@ describe('Personalizer', () => {
       flushInterval: 100,
       contactList: { enable: true },
       relayList: { enable: true },
+      cacheReplaceableEvent: [19999],
     });
 
     const updatedContactList: ContactListEntry[][] = [];
     sut.onUpdatedContactList.listen(entries => updatedContactList.push(entries));
 
+    const updatedReplaceable: Event[] = [];
+    sut.onUpdatedReplaceableEvent.listen(event => updatedReplaceable.push(event));
+
     mux.installPlugin(sut);
 
     // @ts-ignore
     expect(relay.ws.sent).toEqual([
-      '["REQ","__personalize",{"kinds":[3],"authors":["P1"]},{"kinds":[10002],"authors":["P1"]}]' // REQ by initial filter
+       // REQ by initial filter
+      '["REQ","__personalizer",{"kinds":[19999],"authors":["P1"]},{"kinds":[3],"authors":["P1"]},{"kinds":[10002],"authors":["P1"]}]'
     ]);
 
     relay.onEvent.emit({ 
@@ -294,7 +299,7 @@ describe('Personalizer', () => {
       relay, 
       received: { 
         type: 'EVENT', 
-        subscriptionID: '__personalize',
+        subscriptionID: '__personalizer',
         event: {
           id: 'ID2', kind: 3, pubkey: 'P1', content: '', created_at: 20, sig: 'S2',
           tags: [['p', 'NEWER_K3']]
@@ -306,7 +311,7 @@ describe('Personalizer', () => {
       relay, 
       received: { 
         type: 'EVENT', 
-        subscriptionID: '__personalize',
+        subscriptionID: '__personalizer',
         event: {
           id: 'ID3', kind: 10002, pubkey: 'P1', content: '', created_at: 15, sig: 'S3',
           tags: [['r', 'wss://older']]
@@ -318,10 +323,32 @@ describe('Personalizer', () => {
       relay, 
       received: { 
         type: 'EVENT', 
-        subscriptionID: '__personalize',
+        subscriptionID: '__personalizer',
         event: {
           id: 'ID4', kind: 10002, pubkey: 'P1', content: '', created_at: 25, sig: 'S4',
           tags: [['r', 'wss://newer']]
+        }
+      }
+    });
+
+    relay.onEvent.emit({ 
+      relay, 
+      received: { 
+        type: 'EVENT', 
+        subscriptionID: '__personalizer',
+        event: {
+          id: 'ID5', kind: 19999, pubkey: 'P1', content: 'OLDER', created_at: 100, sig: 'S5', tags: []
+        }
+      }
+    });
+
+    relay.onEvent.emit({ 
+      relay, 
+      received: { 
+        type: 'EVENT', 
+        subscriptionID: '__personalizer',
+        event: {
+          id: 'ID6', kind: 19999, pubkey: 'P1', content: 'NEWER', created_at: 200, sig: 'S6', tags: []
         }
       }
     });
@@ -330,6 +357,13 @@ describe('Personalizer', () => {
 
     expect(updatedContactList).toEqual([[{ pubkey: 'NEWER_K3' }]]);
     expect(sut.contactListEntries).toEqual([{ pubkey: 'NEWER_K3' }]);
+
+    expect(updatedReplaceable).toEqual([{
+      id: 'ID6', kind: 19999, pubkey: 'P1', content: 'NEWER', created_at: 200, sig: 'S6', tags: [],
+    }]);
+    expect(sut.getCachedReplaceableEvent(19999)).toEqual({
+      id: 'ID6', kind: 19999, pubkey: 'P1', content: 'NEWER', created_at: 200, sig: 'S6', tags: [],
+    });
 
     expect(mux.allRelays.length).toEqual(1);
     expect(mux.allRelays[0].url).toEqual('wss://newer');
@@ -341,8 +375,14 @@ describe('Personalizer', () => {
 
     // @ts-ignore
     expect(mux.allRelays[0].ws.sent).toEqual([
-      '["REQ","__personalize",{"kinds":[3],"authors":["P1"],"since":20},{"kinds":[10002],"authors":["P1"],"since":25}]' // REQ by recovery filter
-    ])
+      // REQ by recovery filter
+      '["REQ","__personalizer",{"kinds":[19999],"authors":["P1"],"since":200},{"kinds":[3],"authors":["P1"],"since":20},{"kinds":[10002],"authors":["P1"],"since":25}]'
+    ]);
+
+    mux.uninstallPlugin(sut.id());
+
+    expect(sut.contactListEntries).toEqual([]);
+    expect(sut.getCachedReplaceableEvent(19999)).toEqual(undefined);
   });
 
   test('capturePublishedEvent', () => {
@@ -360,6 +400,7 @@ describe('Personalizer', () => {
       flushInterval: 100,
       contactList: { enable: true },
       relayList: { enable: true },
+      cacheReplaceableEvent: [19999],
     });
 
     mux.installPlugin(sut);
@@ -377,6 +418,14 @@ describe('Personalizer', () => {
     });
 
     expect(mux.allRelays.length).toBe(1);
-    expect(mux.allRelays[0].url).toEqual('wss://relay'); // does NOT update when publishing
+    expect(mux.allRelays[0].url).toEqual('wss://updated');
+
+    sut.capturePublishedEvent({
+      id: 'ID3', kind: 19999, pubkey: 'P1', content: '19999!', created_at: 100, sig: 'S3', tags: []
+    });
+
+    expect(sut.getCachedReplaceableEvent(19999)).toEqual({
+      id: 'ID3', kind: 19999, pubkey: 'P1', content: '19999!', created_at: 100, sig: 'S3', tags: [],
+    });
   });
 });

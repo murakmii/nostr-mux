@@ -475,13 +475,13 @@ export class Mux {
           throw new Error(`failed to publish event: ${result}`);
         }
 
-        for (const pid in this.plugins) {
-          this.plugins[pid].capturePublishedEvent(event);
-        }
-
         this.cmds[event.id] = new CommandResult(targets, options);
         for (const relay of targets) {
           relay.publish(event, options.timeout || 5000)
+        }
+
+        for (const pid in this.plugins) {
+          this.plugins[pid].capturePublishedEvent(event);
         }
       })
       .catch(e => { throw e });

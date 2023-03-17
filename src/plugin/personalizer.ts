@@ -10,12 +10,12 @@ import {
   Relay, 
 } from "../core/relay.js";
 
-const logPrefix = '[nostr-mux:plugin:Personalize]';
+const logPrefix = '[nostr-mux:plugin:Personalizer]';
 
 const contactListKind = 3;
 const relayListKind = 10002;
 
-const subID = '__personalize';
+const subID = '__personalizer';
 
 interface RelayListEntry extends RelayPermission {
   url: string;
@@ -46,6 +46,8 @@ export interface PersonalizerOptions {
    * Configuration for Relay List(NIP-65)
    */
   relayList: RelayListOptions;
+
+  cacheReplaceableEvent?: number[];
 }
 
 export interface ContactListOptions {
@@ -129,11 +131,11 @@ export const parseContactListEvent = (e: TagsOnlyEvent): ContactListEntry[] | un
   return entries;
 };
 
-abstract class OverriddenEventHolder {
+abstract class ReplaceableEventHolder {
   readonly pubkey: string;
   private kind: number;
-  private latestEvent?: Event;
-  readonly onUpdated: Emitter<void>;
+  private least?: Event;
+  readonly onUpdated: Emitter<Event>;
 
   constructor(pubkey: string, kind: number) {
     this.pubkey = pubkey;
@@ -141,6 +143,10 @@ abstract class OverriddenEventHolder {
 
     this.onUpdated = new SimpleEmitter();
   }
+
+  get leastEvent(): Event | undefined {
+    return this.least;
+  } 
 
   get targetKind(): number {
     return this.kind;
@@ -157,28 +163,34 @@ abstract class OverriddenEventHolder {
 
   get recoveryFilter(): Filter[] {
     const filter = this.initialFilter;
-    if (this.latestEvent) {
-      filter[0].since = this.latestEvent.created_at;
+    if (this.least) {
+      filter[0].since = this.least.created_at;
     }
 
     return filter;
   }
 
   update(event: Event) {
-    if (this.latestEvent && (this.latestEvent.id === event.id || this.latestEvent.created_at > event.created_at)) {
+    if (this.least && (this.least.id === event.id || this.least.created_at > event.created_at)) {
       return;
     }
 
     if (this.accept(event)) {
-      this.latestEvent = event;
-      this.onUpdated.emit();
+      this.least = event;
+      this.onUpdated.emit(event);
     }
   }
 
   abstract accept(event: Event): boolean;
 }
 
-export class ContactListSupport extends OverriddenEventHolder {
+export class GenericReplaceableEventHolder extends ReplaceableEventHolder {
+  accept() {
+    return true;
+  }
+}
+
+export class ContactListHolder extends ReplaceableEventHolder {
   private log: Logger;
   private entries: ContactListEntry[];
 
@@ -206,7 +218,7 @@ export class ContactListSupport extends OverriddenEventHolder {
   }
 }
 
-export class RelayListSupport extends OverriddenEventHolder {
+export class RelayListHolder extends ReplaceableEventHolder {
   private log: Logger;
   private mux: Mux;
   private relayOptsTpl: RelayOptions;
@@ -273,11 +285,13 @@ export class Personalizer extends Plugin {
   private flushInterval: number;
 
   private contactListOpts: ContactListOptions;
-  private contactList?: ContactListSupport;
+  private contactList?: ContactListHolder;
   private relayListOpts: RelayListOptions;
-  private relayList?: RelayListSupport;
+  private relayList?: RelayListHolder;
+  private genericHolders: GenericReplaceableEventHolder[];
 
   readonly onUpdatedContactList: Emitter<ContactListEntry[]>
+  readonly onUpdatedReplaceableEvent: Emitter<Event>
 
   constructor(pubkey: string, options: PersonalizerOptions) {
     super();
@@ -288,12 +302,28 @@ export class Personalizer extends Plugin {
 
     this.contactListOpts = options.contactList;
     this.relayListOpts = options.relayList;
+    this.genericHolders = (options.cacheReplaceableEvent || []).map(kind => (
+      new GenericReplaceableEventHolder(this.pubkey, kind)
+    ));
 
     this.onUpdatedContactList = new SimpleEmitter();
+    this.onUpdatedReplaceableEvent = new SimpleEmitter();
+
+    if (this.contactListOpts.enable && this.genericHolders.find(h => h.targetKind === contactListKind)) {
+      throw new Error(`${logPrefix} contactList and cacheReplaceableEvent are conflicted`);
+    }
+
+    if (this.relayListOpts.enable && this.genericHolders.find(h => h.targetKind === relayListKind)) {
+      throw new Error(`${logPrefix} relayList and cacheReplaceableEvent are conflicted`);
+    }
   }
 
   get contactListEntries(): ContactListEntry[] {
     return this.contactList?.currentEntries || [];
+  }
+
+  getCachedReplaceableEvent(kind: number): Event | undefined {
+    return this.genericHolders.find(h => h.targetKind === kind)?.leastEvent;
   }
 
   id(): string {
@@ -303,16 +333,19 @@ export class Personalizer extends Plugin {
   install(mux: Mux) {
     this.mux = mux;
 
-    const holders: OverriddenEventHolder[] = [];
+    const holders: ReplaceableEventHolder[] = [...this.genericHolders];
+    for (const holder of holders) {
+      holder.onUpdated.listen(event => this.onUpdatedReplaceableEvent.emit(event));
+    }
 
     if (this.contactListOpts.enable) {
-      this.contactList = new ContactListSupport(this.pubkey, this.log);
+      this.contactList = new ContactListHolder(this.pubkey, this.log);
       this.contactList.onUpdated.listen(() => this.onUpdatedContactList.emit(this.contactList?.currentEntries || []));
       holders.push(this.contactList);
     }
 
     if (this.relayListOpts.enable) {
-      this.relayList = new RelayListSupport(this.pubkey, this.log, mux, this.relayListOpts.relayOptionsTemplate || {});
+      this.relayList = new RelayListHolder(this.pubkey, this.log, mux, this.relayListOpts.relayOptionsTemplate || {});
       holders.push(this.relayList);
     }
 
@@ -349,15 +382,24 @@ export class Personalizer extends Plugin {
 
     this.contactList = undefined;
     this.relayList = undefined;
+    this.genericHolders = (this.genericHolders || []).map(holder => (
+      new GenericReplaceableEventHolder(this.pubkey, holder.targetKind)
+    ));
   }
 
   capturePublishedEvent(event: Event): void {
-    // We SHOULD NOT update mux relay list at this timing.
-    // If we update mux relay list at this timing,
-    // some relays that are removed can NOT receive this event(new relay list).
-    // So, we will update mux relay list when we receives this event that is responded by relay.
-    if (event.pubkey === this.pubkey && event.kind === contactListKind) {
-      this.contactList?.update(event);
+    switch (event.kind) {
+      case contactListKind:
+        this.contactList?.update(event);
+        break;
+
+      case relayListKind:
+        this.relayList?.update(event);
+        break;
+
+      default:
+        this.genericHolders.find(h => h.targetKind === event.kind)?.update(event);
+        break;
     }
   }
 }
