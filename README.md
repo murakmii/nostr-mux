@@ -6,7 +6,7 @@ Multiplexed connections management for Nostr client.
 import { 
   Mux, 
   Relay, 
-  AutoRelayList,
+  Personalizer,
   AutoProfileSubscriber,
   GenericProfile,
   parseGenericProfile,
@@ -22,12 +22,17 @@ const mux = new Mux();
 mux.addRelay(relay1);
 mux.addRelay(relay2);
 
-// If necessary, you can use relay management plugin integrates relay list metadata(NIP-65)
-const autoRelayList = new AutoRelayList({
-  pubkey: '<hex pubkey>',
+// If necessary, you can use Personalizer plugin to load and apply data of user that is specified pubkey
+const personalizer = new Personalizer('<hex pubkey>', {
+  contactList: { enable: true },
+  relayList: { enable: true }
 });
 
-mux.installPlugin(autoRelayList);
+personalizer.onUpdatedContactList(contactList => {
+  console.log('contact list updated', contactList);
+});
+
+mux.installPlugin(personalizer);
 
 // If necessary, you can use automated profile subscribing plugin.
 const autoProfileSubscriber = new AutoProfileSubscriber({
@@ -80,30 +85,27 @@ mux.waitRelayBecomesHealthy(1, 3000)
 mux.removeRelay(relay2.url);
 
 // Get events at once
-new Promise(resolve => {
-  const events = [];
+const events = [];
+mux.waitRelayBecomesHealthy(1, 3000)
+  .then(ok => {
+    if (!ok) {
+      console.error('no healthy relays');
+      return;
+    }
 
-  mux.waitRelayBecomesHealthy(1, 3000)
-    .then(ok => {
-      if (!ok) {
-        console.error('no healthy relays');
-        return;
-      }
+    mux.subscribe({
+      filters: [
+        { kinds: [1], limit: 100 }
+      ],
 
-      mux.subscribe({
-        filters: [
-          { kinds: [1], limit: 100 }
-        ],
+      onEvent: (e) => events.push(e.received.event),
 
-        onEvent: (e) => events.push(e.received.event),
-
-        onEose: (subID) => {
-          mux.unSubscribe(subID);
-          resolve(events);
-        },
-      })  
-    });
-});
+      onEose: (subID) => {
+        mux.unSubscribe(subID);
+        console.log('loaded event', events);
+      },
+    })  
+  });
 
 // Publish event
 mux.publish(
