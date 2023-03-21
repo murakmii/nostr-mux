@@ -42,11 +42,6 @@ export {
 } from './core/mux.js';
 
 export {
-  AutoRelayListOptions,
-  AutoRelayList
-} from './plugin/auto_relay_list.js';
-
-export {
   Cache,
   Profile,
   GenericProfile,
