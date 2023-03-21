@@ -8,6 +8,8 @@ export type AutoProfileSubscriberOptions<T> = {
   collectPubkeyFromEvent?: (event: Event, relayURL?: string) => string[];
   collectPubkeyFromFilter?: (filter: Filter) => string[];
 
+  earlyCallbackPredicate?: (relayURL: string, expectedEoses: number, remain: number) => boolean;
+
   cacheCapacity?: number;
   autoEvict?: boolean;
   tickInterval?: number;
@@ -174,6 +176,8 @@ export class AutoProfileSubscriber<T> extends Plugin {
   private collectPubkeyFromFilter?: (filter: Filter) => string[];
   private collectPubkeyFromEvent?: (event: Event, relayURL?: string) => string[];
 
+  private earlyCallbackPredicate?: (relayURL: string, expectedEoses: number, remain: number) => boolean;
+
   private ticker: () => void;
   private activeTicker?: NodeJS.Timeout;
 
@@ -200,6 +204,8 @@ export class AutoProfileSubscriber<T> extends Plugin {
     this.collectPubkeyFromFilter = options.collectPubkeyFromFilter;
     this.collectPubkeyFromEvent = options.collectPubkeyFromEvent;
 
+    this.earlyCallbackPredicate = options.earlyCallbackPredicate;
+
     this.ticker = (): void => {
       const filter: Filter = { kinds: [0], authors: [] };
       const results: { [K: string]: ProfileCacheEntry<T> } = {};
@@ -220,6 +226,23 @@ export class AutoProfileSubscriber<T> extends Plugin {
         return;
       }
 
+      let resolved = false;
+      const resolveAll = () => {
+        if (resolved) {
+          return;
+        }
+        resolved = true;
+
+        this.mux?.unSubscribe(autoProfileSubscriberSubID);
+
+        for (const pubkey in results) {
+          this.cache.put(pubkey, results[pubkey]);
+          this.resolveWaitingPromises(pubkey, results[pubkey].foundProfile);
+        }
+
+        this.finishTicker();
+      };
+
       this.mux?.subscribe({
         id: autoProfileSubscriberSubID,
         filters: [filter],
@@ -237,16 +260,12 @@ export class AutoProfileSubscriber<T> extends Plugin {
             }
           }
         },
-        onEose: () => {
-          this.mux?.unSubscribe(autoProfileSubscriberSubID);
-
-          for (const pubkey in results) {
-            this.cache.put(pubkey, results[pubkey]);
-            this.resolveWaitingPromises(pubkey, results[pubkey].foundProfile);
+        onPartialEose: (_, relayURL, expectedEoses, remain) => {
+          if (!resolved && this.earlyCallbackPredicate?.(relayURL, expectedEoses, remain)) {
+            resolveAll();
           }
-
-          this.finishTicker();
         },
+        onEose: resolveAll,
         eoseTimeout: this.timeout,
       });
     };
@@ -355,7 +374,7 @@ export class AutoProfileSubscriber<T> extends Plugin {
   }
 
   private finishTicker() {
-    // If pubkey was pushed to backlog while ticker is running, we run next ticker immediately.
-    this.activeTicker = this.pubkeyBacklog.size > 0 ? setTimeout(this.ticker, 0) : undefined;
+    // If pubkey was pushed to backlog while ticker is running, we run next ticker.
+    this.activeTicker = this.pubkeyBacklog.size > 0 ? setTimeout(this.ticker, this.tickInterval) : undefined;
   }
 }

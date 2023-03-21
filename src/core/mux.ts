@@ -30,6 +30,7 @@ export interface SubscriptionOptions {
   enableBuffer?: BufferOptions;
   eoseTimeout?: number;
   onEose?: (subID: string) => void;
+  onPartialEose?: (subID: string, relayURL: string, originalWaitListSize: number, remainWaitListSize: number) => void;
   onRecovered?: (relay: Relay, isNew: boolean) => Filter[];
 }
 
@@ -128,6 +129,7 @@ export class Subscription {
   private id: string;
   private sentFilterOnce: Set<string>;
   private eoseWaitList: Set<string>;
+  private expectedEosesCount: number;
   private filters: Filter[];
   private eventMatchers: EventMatcher[];
 
@@ -137,12 +139,14 @@ export class Subscription {
 
   private eventHandler: (events: [RelayMessageEvent<EventMessage>, ...RelayMessageEvent<EventMessage>[]]) => void;
   private eoseHandler: undefined | ((subID: string) => void);
+  private partialEoseHandler: undefined | ((subID: string, relayURL: string, expectedEosesCount: number, remain: number) => void);
   private recoveredHandler: undefined | ((relay: Relay, isNew: boolean) => Filter[]);
 
   constructor(id: string, initialRelays: Relay[], subOptions: SubscriptionOptions) {
     this.id = id;
     this.sentFilterOnce = new Set(initialRelays.map(r => r.url));
     this.eoseWaitList = new Set(initialRelays.map(r => r.url));
+    this.expectedEosesCount = this.eoseWaitList.size;
     this.filters = subOptions.filters;
     this.eventMatchers = subOptions.filters.map(f => new EventMatcher(f));
 
@@ -151,6 +155,7 @@ export class Subscription {
     
     this.eventHandler = subOptions.onEvent;
     this.eoseHandler = subOptions.onEose;
+    this.partialEoseHandler = subOptions.onPartialEose;
     this.recoveredHandler = subOptions.onRecovered;
 
     // If subscription started with no healthy relays, calls EOSE handler immediately.
@@ -182,6 +187,8 @@ export class Subscription {
     }
 
     this.eoseWaitList.delete(senderRelayURL);
+    this.partialEoseHandler?.(this.id, senderRelayURL, this.expectedEosesCount, this.eoseWaitList.size);
+
     if (this.isAfterEose) {
       this.flushBuffered(); // We SHOULD maintain EVENT and EOSE ordering.
       this.eoseHandler?.(this.id);

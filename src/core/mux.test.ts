@@ -337,6 +337,7 @@ describe('Subscription', () => {
   });
 
   test('consumeEose', () => {
+    let callPartialEoses: [string, string, number, number][] = [];
     let callEose = 0;
     let callEvent = 0;
     const relay1 = new Relay('wss://host1', { watchDogInterval: 0 });
@@ -347,6 +348,7 @@ describe('Subscription', () => {
       enableBuffer: {
         flushInterval: 200
       },
+      onPartialEose: (subID, relayURL, expected, remain) => callPartialEoses.push([subID, relayURL, expected, remain]),
       onEose: () => callEose++
     });
 
@@ -369,11 +371,13 @@ describe('Subscription', () => {
 
     sut.consumeEose(relay1.url);
     expect(callEose).toBe(0);
+    expect(callPartialEoses).toEqual([['my-sub', 'wss://host1', 2, 1]]);
     expect(callEvent).toBe(0);
     expect(sut.isAfterEose).toBe(false);
 
     sut.consumeEose(relay2.url);
     expect(callEose).toBe(1);
+    expect(callPartialEoses).toEqual([['my-sub', 'wss://host1', 2, 1], ['my-sub', 'wss://host2', 2, 0]]);
     expect(callEvent).toBe(1);
     expect(sut.isAfterEose).toBe(true);
 

@@ -444,6 +444,102 @@ describe('AutoProfileSubscriber', () => {
     ]);
   }, 10000);
 
+  test('subscribe and early return', async () => {
+    const relay1 = new Relay('wss://host1', { watchDogInterval: 0 });
+    const relay2 = new Relay('wss://host2', { watchDogInterval: 0 });
+    const mux = new Mux();
+
+    mux.addRelay(relay1);
+    mux.addRelay(relay2);
+
+    // @ts-ignore
+    relay1.ws.readyState = 1;
+    // @ts-ignore
+    relay1.ws.dispatch('open', null);
+
+    // @ts-ignore
+    relay2.ws.readyState = 1;
+    // @ts-ignore
+    relay2.ws.dispatch('open', null);
+
+    let callPredicater: [string, number, number][] = [];
+
+    const sut = new AutoProfileSubscriber({
+      parser: parseGenericProfile,
+      collectPubkeyFromFilter: () => { return []; },
+      earlyCallbackPredicate: (relayURL, expectedEoses, remain) => {
+        callPredicater.push([relayURL, expectedEoses, remain]);
+        return true;
+      },
+      tickInterval: 10,
+      timeout: 500,
+    });
+
+    mux.installPlugin(sut);
+
+    // run ticker after 10ms
+    let profileForPUBKEY: Profile<GenericProfile> | undefined;
+    sut.get('PUBKEY').then(profile => profileForPUBKEY = profile);
+
+    let profileForPUBKEY2: Profile<GenericProfile> | undefined;
+    sut.get('PUBKEY2').then(profile => profileForPUBKEY2 = profile);
+
+    await new Promise(r => setTimeout(r, 100)); // ticker is running
+
+    // emit profile
+    relay1.onEvent.emit({
+      relay: relay1,
+      received: {
+        type: 'EVENT',
+        subscriptionID: '__profile',
+        event: {
+          kind: 0,
+          content: '{"name":"nostr","display_name":"Nostr","about":"this is jest","picture":"https://pic","nip05":"https://nip05"}',
+          id: 'ID', 
+          pubkey: 'PUBKEY', 
+          created_at: 123456789,
+          tags: [], 
+          sig: 'SIG',
+        }
+      }
+    });
+
+    // decide to resolve all callback by earlyCallbackPredicate
+    relay1.onEose.emit({ relay: relay1, received: { type: 'EOSE', subscriptionID: '__profile' } });
+
+    expect(callPredicater).toEqual([['wss://host1', 2, 1]]);
+
+    // @ts-ignore
+    expect(relay1.ws.sent).toEqual([
+      '["REQ","__profile",{"kinds":[0],"authors":["PUBKEY","PUBKEY2"]}]',
+      '["CLOSE","__profile"]',
+    ]);
+
+    // @ts-ignore
+    expect(relay2.ws.sent).toEqual([
+      '["REQ","__profile",{"kinds":[0],"authors":["PUBKEY","PUBKEY2"]}]',
+      '["CLOSE","__profile"]',
+    ]);
+
+    await new Promise(r => setTimeout(r, 100));
+
+    expect(profileForPUBKEY).toEqual({
+      properties: {
+        name: 'nostr',
+        displayName: 'Nostr',
+        about: 'this is jest',
+        picture: 'https://pic',
+        nip05: 'https://nip05',
+      },
+      createdAt: 123456789,
+      relayURL: 'wss://host1',
+    });
+    expect(profileForPUBKEY2).toEqual(undefined);
+
+    // check error by onEOSE
+    await new Promise(r => setTimeout(r, 1000));
+  }, 10000);
+
   test('do NOT subscribe by empty authors filter', async () => {
     const relay = new Relay('wss://host', { watchDogInterval: 0 });
     const mux = new Mux();
@@ -465,8 +561,7 @@ describe('AutoProfileSubscriber', () => {
     mux.installPlugin(sut);
 
     // run ticker after 10ms
-    let profileForPUBKEY: Profile<GenericProfile> | undefined;
-    sut.get('PUBKEY').then(result => profileForPUBKEY = result);  
+    sut.get('PUBKEY');
 
     await new Promise(r => setTimeout(r, 100)); // ticker is running
 
